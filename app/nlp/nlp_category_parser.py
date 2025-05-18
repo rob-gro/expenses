@@ -1,9 +1,6 @@
 import logging
 import re
 import datetime
-from openai import OpenAI
-from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
-from config import Config
 
 logger = logging.getLogger(__name__)
 

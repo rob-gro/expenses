@@ -7,9 +7,9 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
 from dateutil.relativedelta import relativedelta
 
-import category_service
-from db_manager import DBManager
-from config import Config
+from app.services import category_service
+from app.database.db_manager import DBManager
+from app.config import Config
 
 # Configure logging
 logger = logging.getLogger(__name__)

@@ -4,11 +4,11 @@ from email.message import EmailMessage
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from config import Config
+from app.config import Config
 import logging
-from db_manager import DBManager
-from report_generator import send_report_email
-from nlp_category_parser import extract_category_from_text, extract_date_range_from_text
+from app.database.db_manager import DBManager
+from app.core.report_generator import send_report_email
+from app.nlp.nlp_category_parser import extract_category_from_text, extract_date_range_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +204,17 @@ def send_category_confirmation_notification(expense, current_category, predicted
 
 def try_generate_report_from_text(transcription):
     """Attempt to generate a report based on transcribed text"""
+
+    report_keywords = ['raport', 'report', 'zestawienie', 'podsumowanie', 'wyślij raport',
+                       'generuj raport', 'stwórz raport', 'wygeneruj raport']
+
+    is_report_command = any(keyword in transcription.lower() for keyword in report_keywords)
+
+    # Jeśli nie ma wyraźnych słów kluczowych raportu, nie kontynuuj
+    if not is_report_command:
+        logger.info(f"Transkrypcja nie zawiera komend raportowania: '{transcription}'")
+        return False
+
     categories = db.get_all_categories()
     category = extract_category_from_text(transcription, categories)
 

@@ -2,8 +2,7 @@ import pymysql
 import datetime
 import logging
 import json
-import re
-from config import Config
+from app.config import Config
 
 # Configure logging
 logger = logging.getLogger(__name__)

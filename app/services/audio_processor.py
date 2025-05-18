@@ -1,9 +1,9 @@
 import logging
 import datetime
 
-from expense_extractor import enhance_with_llm
-from transcription import transcribe_audio
-from email_service import send_email, send_confirmation_email
+from app.nlp.expense_extractor import enhance_with_llm
+from app.services.transcription import transcribe_audio
+from app.services.email_service import send_email, send_confirmation_email
 
 logger = logging.getLogger(__name__)
 

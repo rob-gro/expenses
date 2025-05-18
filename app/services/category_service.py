@@ -3,7 +3,7 @@ import logging
 
 from openai import OpenAI
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
-from config import Config
+from app.config import Config
 
 logger = logging.getLogger(__name__)
 

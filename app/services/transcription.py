@@ -1,4 +1,3 @@
-# W pliku transcription.py
 import logging
 import os
 import subprocess
@@ -6,7 +5,7 @@ import tempfile
 
 from openai import OpenAI
 
-from config import Config
+from app.config import Config
 
 # Configure logging
 logger = logging.getLogger(__name__)

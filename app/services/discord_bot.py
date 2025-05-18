@@ -6,13 +6,13 @@ import aiohttp
 import datetime
 import logging
 
-import category_service
-from config import Config
-from transcription import transcribe_audio
-from expense_extractor import extract_with_llm
-from db_manager import DBManager
-from email_service import send_confirmation_email, send_category_addition_email
-from email_service import try_generate_report_from_text
+from app.services import category_service
+from app.config import Config
+from app.services.transcription import transcribe_audio
+from app.nlp.expense_extractor import extract_with_llm
+from app.database.db_manager import DBManager
+from app.services.email_service import send_confirmation_email, send_category_addition_email
+from app.services.email_service import try_generate_report_from_text
 from concurrent.futures import ThreadPoolExecutor
 
 

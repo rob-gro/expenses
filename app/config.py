@@ -17,8 +17,8 @@ class Config:
     DB_NAME = os.environ.get('DB_NAME')
 
     # File upload settings
-    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', 'uploads')
-    REPORT_FOLDER = os.environ.get('REPORT_FOLDER', 'reports')
+    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '../uploads')
+    REPORT_FOLDER = os.environ.get('REPORT_FOLDER', '../reports')
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max upload
 
     # OpenAI API settings (for Whisper)

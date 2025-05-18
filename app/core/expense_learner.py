@@ -141,3 +141,62 @@ class ExpenseLearner:
         except Exception as e:
             logger.error(f"Error predicting category with confidence: {str(e)}")
             return None, 0.0
+
+    def incremental_train(self, expense_id, confirmed_category):
+        """
+        Przyrostowo trenuj model na podstawie pojedynczego potwierdzonego wydatku.
+
+        Args:
+            expense_id (int): ID wydatku, którego kategorię potwierdzono
+            confirmed_category (str): Potwierdzona kategoria wydatku
+
+        Returns:
+            bool: True jeśli uczenie się powiodło, False w przeciwnym wypadku
+        """
+        try:
+            # Pobierz dane wydatku
+            expense = self.db_manager.get_expense(expense_id)
+            if not expense:
+                logger.warning(f"Cannot incrementally train - expense ID {expense_id} not found")
+                return False
+
+            # Jeśli model nie istnieje, najpierw musimy go stworzyć
+            if not self.model:
+                logger.info("No existing model for incremental training, attempting to create one")
+                success = self.train_model()
+                if not success:
+                    logger.warning("Failed to create initial model for incremental training")
+                    return False
+
+            # Przygotuj dane do uczenia
+            features = expense['transcription'] + ' ' + (expense['vendor'] or '')
+            category = confirmed_category
+
+            # Sprawdź, czy mamy wystarczającą ilość danych do uczenia przyrostowego
+            if not features or not category:
+                logger.warning("Insufficient data for incremental training")
+                return False
+
+            # Aktualizuj model - najpierw przekształć dane za pomocą tfidf
+            X_new = self.model.named_steps['tfidf'].transform([features])
+            y_new = [category]
+
+            # Sprawdź czy kategoria jest w zbiorze klas, jeśli nie, rozszerz klasy
+            classes = list(self.model.named_steps['clf'].classes_)
+            if category not in classes:
+                classes.append(category)
+                logger.info(f"Adding new category to model classes: {category}")
+
+            # Aktualizuj klasyfikator przyrostowo
+            # MultinomialNB obsługuje uczenie przyrostowe przez partial_fit
+            self.model.named_steps['clf'].partial_fit(X_new, y_new, classes=classes)
+
+            # Zapisz zaktualizowany model
+            self.save_model()
+
+            logger.info(f"Successfully updated model incrementally with expense ID {expense_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error in incremental training: {str(e)}", exc_info=True)
+            return False
