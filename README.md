@@ -1,6 +1,6 @@
-# Expense Tracker Pro
+# Expense Tracker
 
-Expense Tracker Pro is a comprehensive system for tracking, analyzing, and reporting personal and business expenses. The application leverages modern natural language processing and machine learning technologies to automatically categorize expenses based on voice transcriptions, significantly streamlining the process of recording daily expenses.
+Expense Tracker is a comprehensive system for tracking, analyzing, and reporting personal and business expenses. The application leverages modern natural language processing and machine learning technologies to automatically categorize expenses based on voice transcriptions, significantly streamlining the process of recording daily expenses.
 
 ## 🚀 Features
 
