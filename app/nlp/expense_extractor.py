@@ -43,18 +43,35 @@ def extract_with_llm(text):
         if relative_date:
             relative_date_hint += f", a data względna to: {relative_date.strftime('%Y-%m-%d')}"
 
+        amount, currency = extract_amount_and_currency(text)
+        amount_hint = ""
+        if amount is not None:
+            amount_hint = f"\nWykryta kwota: {amount} {currency}"
+
         system_prompt = """
         Jesteś asystentem finansowym, który wyodrębnia informacje o wydatkach z tekstu.
         Tekst będzie zawierał informacje o wydatkach po polsku lub angielsku.
+        
         Twoim zadaniem jest zidentyfikowanie:
         1. Daty wydatku - zwróć dzisiejszą datę jeśli nie podano konkretnej daty
         2. Kwoty wydanej (w funtach)
         3. Sprzedawcy/sklepu
         4. Kategorii/ grupy towarowej, do której należy przypisać dany wydatek
         5. Dodatkowego opisu w języku ANGIELSKIM (Użyj tylko rzeczownika, wszyscy wiedzą, że chodzi o zakup)
+        
+        BARDZO WAŻNE: Zachowaj oryginalną datę z tekstu. Jeśli jest mowa o konkretnej dacie (np. "2 maja"), 
+        użyj tej daty, nie dzisiejszej daty.
+        
+        BARDZO WAŻNE: Zachowaj oryginalną kwotę z tekstu. Nie przeliczaj walut.
+        Jeśli kwota jest w PLN (złotych), pozostaw ją w oryginalnej walucie.
+        
+        BARDZO WAŻNE: Określ poprawną kategorię na podstawie rodzaju produktu:
+        - Chemię gospodarczą, środki czystości, detergenty zaklasyfikuj jako 'Household Chemicals'
+        - Artykuły spożywcze zaklasyfikuj jako 'Groceries'
+        - Napoje alkoholowe zaklasyfikuj jako 'Alcohol'
 
         Pamiętaj, że jeśli w tekście jest mowa o kilku produktach, każdy z nich musi być osobnym rekordem w tablicy wydatków.
-        Na przykład "Kupiłem chleb za 2 funty, mleko za 1 funt i piwo za 3 funty" powinno dać 3 osobne rekordy, a piwo powinno być zapisane do kategorii "Alcohol'
+        Na przykład "Kupiłem chleb za 2 funty, mleko za 1 funt i piwo za 3 funty" powinno dać 3 osobne rekordy
         Przeskanuj listę sklepów w UK, aby uniknąć błędnych nazw dodawanych do bazy danych takich jak "Azja" zamiast "Asda" lub "PC Karys" lub "Piscicaris" zamiast "PC Currys"
 
         Odpowiedz TYLKO strukturą danych w formacie JSON. Upewnij się, że opis jest w języku angielskim.
@@ -65,6 +82,7 @@ def extract_with_llm(text):
 
         Text: "{text}"
         {relative_date_hint}
+        {amount_hint}
 
         Zwróć tablicę JSON z polami:
         - date: w formacie RRRR-MM-DD
@@ -133,6 +151,10 @@ def extract_with_llm(text):
                 logger.warning(f"Expense #{i + 1} - Missing or invalid 'date' field. Assigning fallback date.")
                 expense[
                     'date'] = relative_date if relative_date and relative_date.year >= current_year else current_date
+            if isinstance(expense, dict) and 'amount' in expense:
+                if amount is not None:
+                    expense['amount'] = amount
+                    expense['currency'] = currency
 
         return expenses
 
@@ -142,6 +164,8 @@ def extract_with_llm(text):
 
 def parse_relative_date(text, language='pl'):
     today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    text_lower = text.lower()
 
     relative_terms = {
         'pl': {
@@ -165,18 +189,158 @@ def parse_relative_date(text, language='pl'):
         }
     }
 
-    text_lower = text.lower()
+    month_names = {
+        'pl': {
+            'stycznia': 1, 'styczeń': 1, 'styczniu': 1, 'styczen': 1,
+            'lutego': 2, 'luty': 2, 'lutym': 2,
+            'marca': 3, 'marzec': 3, 'marcu': 3,
+            'kwietnia': 4, 'kwiecień': 4, 'kwietniu': 4, 'kwiecien': 4,
+            'maja': 5, 'maj': 5, 'maju': 5,
+            'czerwca': 6, 'czerwiec': 6, 'czerwcu': 6,
+            'lipca': 7, 'lipiec': 7, 'lipcu': 7,
+            'sierpnia': 8, 'sierpień': 8, 'sierpniu': 8, 'sierpien': 8,
+            'września': 9, 'wrzesień': 9, 'wrześniu': 9, 'wrzesien': 9, 'wrzesniu': 9,
+            'października': 10, 'październik': 10, 'październiku': 10, 'pazdziernika': 10, 'pazdziernik': 10,
+            'listopada': 11, 'listopad': 11, 'listopadzie': 11,
+            'grudnia': 12, 'grudzień': 12, 'grudniu': 12, 'grudzien': 12
+        },
+        'en': {
+            'january': 1, 'jan': 1,
+            'february': 2, 'feb': 2,
+            'march': 3, 'mar': 3,
+            'april': 4, 'apr': 4,
+            'may': 5,
+            'june': 6, 'jun': 6,
+            'july': 7, 'jul': 7,
+            'august': 8, 'aug': 8,
+            'september': 9, 'sep': 9, 'sept': 9,
+            'october': 10, 'oct': 10,
+            'november': 11, 'nov': 11,
+            'december': 12, 'dec': 12
+        }
+    }
 
+    day_words = {
+        'pl': {
+            'pierwszego': 1, 'pierwszy': 1, 'pierwszym': 1,
+            'drugiego': 2, 'drugi': 2, 'drugim': 2,
+            'trzeciego': 3, 'trzeci': 3, 'trzecim': 3,
+            'czwartego': 4, 'czwarty': 4, 'czwartym': 4,
+            'piątego': 5, 'piąty': 5, 'piątym': 5, 'piatego': 5,
+            'szóstego': 6, 'szósty': 6, 'szóstym': 6, 'szostego': 6,
+            'siódmego': 7, 'siódmy': 7, 'siódmym': 7, 'siodmego': 7,
+            'ósmego': 8, 'ósmy': 8, 'ósmym': 8, 'osmego': 8,
+            'dziewiątego': 9, 'dziewiąty': 9, 'dziewiątym': 9, 'dziewiatego': 9,
+            'dziesiątego': 10, 'dziesiąty': 10, 'dziesiątym': 10, 'dziesiatego': 10
+        },
+        'en': {
+            'first': 1, '1st': 1,
+            'second': 2, '2nd': 2,
+            'third': 3, '3rd': 3,
+            'fourth': 4, '4th': 4,
+            'fifth': 5, '5th': 5,
+            'sixth': 6, '6th': 6,
+            'seventh': 7, '7th': 7,
+            'eighth': 8, '8th': 8,
+            'ninth': 9, '9th': 9,
+            'tenth': 10, '10th': 10
+        }
+    }
+
+    # 1. Najpierw sprawdź daty względne
     for term, date in relative_terms.get(language, {}).items():
         if term in text_lower:
             return date
 
+    # Sprawdź w drugim języku
     other_lang = 'en' if language == 'pl' else 'pl'
     for term, date in relative_terms.get(other_lang, {}).items():
         if term in text_lower:
             return date
 
+    # 2. Szukaj konkretnej daty w formacie "dzień miesiąc" lub "słowny_dzień miesiąc"
+    for lang, month_dict in month_names.items():
+        for month_name, month_num in month_dict.items():
+            # 2a. Sprawdź wzorzec: cyfra + nazwa miesiąca (np. "2 maja")
+            number_pattern = rf'(\d+)[^\d]*{month_name}'
+            number_match = re.search(number_pattern, text_lower)
+            if number_match:
+                day = int(number_match.group(1))
+                if 1 <= day <= 31:  # Sprawdź, czy dzień jest w prawidłowym zakresie
+                    year = today.year
+                    try:
+                        return datetime.datetime(year, month_num, day)
+                    except ValueError:
+                        # Obsługa błędów np. 31 lutego
+                        continue  # Kontynuuj szukanie innych wzorców
+
+            # 2b. Sprawdź wzorzec: słowny dzień + nazwa miesiąca (np. "drugiego maja")
+            for day_word, day_num in day_words.get(lang, {}).items():
+                word_pattern = rf'{day_word}[^\w]*{month_name}'
+                word_match = re.search(word_pattern, text_lower)
+                if word_match:
+                    year = today.year
+                    try:
+                        return datetime.datetime(year, month_num, day_num)
+                    except ValueError:
+                        # Obsługa błędów
+                        continue
+
+    # 3. Sprawdź format daty w tekście (np. "2023-05-02" lub "02.05.2023")
+    date_patterns = [
+        r'(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})',  # YYYY-MM-DD
+        r'(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})',  # DD-MM-YYYY
+    ]
+
+    for pattern in date_patterns:
+        date_match = re.search(pattern, text)
+        if date_match:
+            groups = date_match.groups()
+            if len(groups[0]) == 4:  # YYYY-MM-DD
+                year, month, day = map(int, groups)
+            else:  # DD-MM-YYYY
+                day, month, year = map(int, groups)
+
+            try:
+                return datetime.datetime(year, month, day)
+            except ValueError:
+                # Nieprawidłowa data, kontynuuj szukanie
+                continue
+
     return None
+
+
+def extract_amount_and_currency(text):
+    """Wyodrębnia kwotę i walutę z tekstu"""
+    # Wzorce kwot z różnymi walutami
+    amount_patterns = [
+        r'(\d+[,.]\d+)\s*(?:zł|PLN|złotych)',  # np. "9,99 zł"
+        r'(\d+[,.]\d+)\s*(?:GBP|£|funtów)',  # np. "9.99 GBP"
+        r'(\d+[,.]\d+)',  # np. "9.99" (bez waluty)
+    ]
+
+    # Domyślna waluta (GBP)
+    currency = 'GBP'
+
+    # Szukaj kwoty i waluty
+    for pattern in amount_patterns:
+        match = re.search(pattern, text)
+        if match:
+            amount_str = match.group(1).replace(',', '.')
+            amount = float(amount_str)
+
+            # Określ walutę
+            if 'zł' in text or 'PLN' in text or 'złotych' in text:
+                currency = 'PLN'
+                # Jeśli kwota jest w PLN, przelicz na GBP (jeśli potrzebne)
+                # Przykładowy kurs: 1 GBP = 5 PLN
+                if currency == 'PLN' and Config.CONVERT_CURRENCY:
+                    amount = round(amount / 5.0, 2)  # Przeliczenie PLN na GBP
+
+            return amount, currency
+
+    # Jeśli nie znaleziono, zwróć None
+    return None, None
 
 def enhance_with_llm(text, existing_expenses=None):
     try:
@@ -191,6 +355,17 @@ def enhance_with_llm(text, existing_expenses=None):
         system_prompt = """
         You are a financial assistant that extracts expense information from text.
         Extract precise details about expenses including dates, amounts, vendors, and categories.
+        Pay special attention to product type to determine the correct category.
+        For example:
+        - Cleaning products, detergents, soaps should be categorized as 'Household Chemicals'
+        - Food items should be categorized as 'Groceries'
+        - Alcoholic beverages should be categorized as 'Alcohol'
+        
+        IMPORTANT: Preserve the original date mentioned in the text. If a specific date like "2nd May" is mentioned, 
+        use that date, not today's date.
+        
+        IMPORTANT: Preserve the original currency. If an amount is in PLN (Polish Złoty), keep it as PLN and don't convert.
+        
         Respond only with structured valid JSON data.
         """
 
