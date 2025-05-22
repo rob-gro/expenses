@@ -98,4 +98,4 @@ Intuitive web interface with three main sections:
 
 ---
 
-Expense Tracker Pro represents a modern approach to expense tracking, eliminating tedious manual data entry and offering advanced analysis capabilities. Through integration with AI, ML, and speech recognition technologies, the system provides a comprehensive solution for both individuals and businesses seeking an effective way to control their budget.
+Expense Tracker represents a modern approach to expense tracking, eliminating tedious manual data entry and offering advanced analysis capabilities. Through integration with AI, ML, and speech recognition technologies, the system provides a comprehensive solution for both individuals and businesses seeking an effective way to control their budget.
