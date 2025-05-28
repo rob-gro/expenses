@@ -4,13 +4,11 @@ import datetime
 
 logger = logging.getLogger(__name__)
 
-
 def extract_date_range_from_text(text):
 
     if not text:
         return None, None
 
-    # Convert text to lowercase for matching
     text_lower = text.lower()
 
     # Get current date for relative calculations

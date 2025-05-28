@@ -2,6 +2,7 @@ import re
 import datetime
 import logging
 import json
+from typing import List, Dict, Optional, Tuple
 
 from openai import OpenAI
 from openai.types.chat import ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam
@@ -18,80 +19,45 @@ logger = logging.getLogger(__name__)
 client = OpenAI(api_key=Config.OPENAI_API_KEY)
 
 # Initialize DB manager
+config = Config()
 db = DBManager(
     host=Config.DB_HOST,
     user=Config.DB_USER,
     password=Config.DB_PASSWORD,
-    database=Config.DB_NAME
+    database=config.DB_NAME
 )
 
 
-def extract_with_llm(text):
-    try:
-        is_category_command, category_name = category_service.detect_category_command(text)
+def extract_expenses_with_ai(text: str) -> Optional[List[Dict]]:
+    """
+    Main function to extract expense information from text using AI.
 
+    Args:
+        text: Raw transcription text containing expense information
+
+    Returns:
+        List of expense dictionaries or None if extraction fails
+    """
+    try:
+        # Check if this is a category addition command
+        is_category_command, category_name = category_service.detect_category_command(text)
         if is_category_command and category_name:
-            logger.info(f"Detected category addition command in LLM extraction: '{category_name}'")
-            # Return None to indicate that this is not an expense record
+            logger.info(f"Detected category addition command: '{category_name}'")
             return None
 
+        # Get available categories
         all_categories = db.get_all_categories()
         categories_str = ", ".join(all_categories)
 
+        # Parse relative date
         relative_date = parse_relative_date(text)
-        relative_date_hint = f"\nDzisiejsza data to: {datetime.datetime.now().strftime('%Y-%m-%d')}"
-        if relative_date:
-            relative_date_hint += f", a data względna to: {relative_date.strftime('%Y-%m-%d')}"
+        date_context = _build_date_context(relative_date)
 
-        amount, currency = extract_amount_and_currency(text)
-        amount_hint = ""
-        if amount is not None:
-            amount_hint = f"\nWykryta kwota: {amount} {currency}"
+        # Build enhanced prompt with Chain of Thought
+        system_prompt = _build_system_prompt()
+        user_prompt = _build_user_prompt(text, categories_str, date_context)
 
-        system_prompt = """
-        Jesteś asystentem finansowym, który wyodrębnia informacje o wydatkach z tekstu.
-        Tekst będzie zawierał informacje o wydatkach po polsku lub angielsku.
-        
-        Twoim zadaniem jest zidentyfikowanie:
-        1. Daty wydatku - zwróć dzisiejszą datę jeśli nie podano konkretnej daty
-        2. Kwoty wydanej (w funtach)
-        3. Sprzedawcy/sklepu
-        4. Kategorii/ grupy towarowej, do której należy przypisać dany wydatek
-        5. Dodatkowego opisu w języku ANGIELSKIM (Użyj tylko rzeczownika, wszyscy wiedzą, że chodzi o zakup)
-        
-        BARDZO WAŻNE: Zachowaj oryginalną datę z tekstu. Jeśli jest mowa o konkretnej dacie (np. "2 maja"), 
-        użyj tej daty, nie dzisiejszej daty.
-        
-        BARDZO WAŻNE: Zachowaj oryginalną kwotę z tekstu. Nie przeliczaj walut.
-        Jeśli kwota jest w PLN (złotych), pozostaw ją w oryginalnej walucie.
-        
-        BARDZO WAŻNE: Określ poprawną kategorię na podstawie rodzaju produktu:
-        - Chemię gospodarczą, środki czystości, detergenty zaklasyfikuj jako 'Household Chemicals'
-        - Artykuły spożywcze zaklasyfikuj jako 'Groceries'
-        - Napoje alkoholowe zaklasyfikuj jako 'Alcohol'
-
-        Pamiętaj, że jeśli w tekście jest mowa o kilku produktach, każdy z nich musi być osobnym rekordem w tablicy wydatków.
-        Na przykład "Kupiłem chleb za 2 funty, mleko za 1 funt i piwo za 3 funty" powinno dać 3 osobne rekordy
-        Przeskanuj listę sklepów w UK, aby uniknąć błędnych nazw dodawanych do bazy danych takich jak "Azja" zamiast "Asda" lub "PC Karys" lub "Piscicaris" zamiast "PC Currys"
-
-        Odpowiedz TYLKO strukturą danych w formacie JSON. Upewnij się, że opis jest w języku angielskim.
-        """
-
-        user_prompt = f"""
-        Wyodrębnij informacje o wydatkach z poniższego tekstu:
-
-        Text: "{text}"
-        {relative_date_hint}
-        {amount_hint}
-
-        Zwróć tablicę JSON z polami:
-        - date: w formacie RRRR-MM-DD
-        - amount: wartość liczbowa (w funtach)
-        - vendor: nazwa sprzedawcy lub sklepu
-        - category: JEDNA z dostępnych kategorii: {categories_str}
-        - description: krótki opis wydatku W JĘZYKU ANGIELSKIM (Użyj tylko rzeczownika, wszyscy wiedzą, że chodzi o zakup)
-        """
-
+        # Call OpenAI API
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
@@ -101,70 +67,242 @@ def extract_with_llm(text):
             temperature=0.1
         )
 
-        response_text = response.choices[0].message.content.strip()
+        # Parse response
+        expenses = _parse_ai_response(response.choices[0].message.content.strip())
+        if not expenses:
+            return None
 
+        # Post-process and validate
+        expenses = _post_process_expenses(expenses, relative_date)
+        expenses = _validate_categorization(expenses)
+
+        logger.info(f"Successfully extracted {len(expenses)} expenses")
+        return expenses
+
+    except Exception as e:
+        logger.error(f"Error in extract_expenses_with_ai: {str(e)}", exc_info=True)
+        return None
+
+
+def _build_system_prompt() -> str:
+    """Build enhanced system prompt with Chain of Thought reasoning"""
+    return """
+You are an expert financial assistant specializing in expense categorization from shopping receipts.
+
+CORE METHODOLOGY - CHAIN OF THOUGHT:
+Step 1: PARSE - Break down the text into individual products/services
+Step 2: ANALYZE - For each item, determine what it actually IS (not context)
+Step 3: CATEGORIZE - Assign category based on the item's true nature
+Step 4: PRICE - Match each item with its specific price
+
+CATEGORIZATION RULES:
+🥬 Food & Beverages → 'Groceries' (vegetables, fruits, bread, milk, snacks, non-alcoholic drinks)
+🍺 Alcoholic Drinks → 'Alcohol' (beer, wine, spirits, cocktails)
+🧽 Cleaning Products → 'Household Chemicals' (detergents, soaps, disinfectants, bleach)
+⛽ Vehicle Fuel → 'Fuel' (petrol, diesel, gas)
+💊 Health Items → 'Healthcare' (medicines, vitamins, medical supplies)
+👕 Apparel → 'Clothing' (clothes, shoes, accessories)
+🎮 Leisure → 'Entertainment' (games, movies, events, subscriptions)
+🚗 Travel → 'Transportation' (public transport, taxi, parking)
+💡 Bills → 'Utilities' (electricity, water, gas, internet)
+🏠 Housing → 'Rent' (rent, mortgage, property fees)
+📚 Learning → 'Education' (books, courses, school supplies)
+💄 Beauty → 'Cosmetics' (makeup, skincare, toiletries)
+📝 Work Items → 'Office supplies' (stationery, equipment)
+❓ Everything Else → 'Other'
+
+CRITICAL INDEPENDENCE RULE:
+Each product is categorized INDEPENDENTLY. A cucumber is ALWAYS Groceries, even if bought with beer.
+
+EXAMPLES:
+Input: "cucumber £2.50, beer £3.50"
+Step 1: Parse → [cucumber, beer]
+Step 2: Analyze → cucumber=vegetable, beer=alcohol
+Step 3: Categorize → cucumber=Groceries, beer=Alcohol  
+Step 4: Price → cucumber=£2.50, beer=£3.50
+
+Input: "bread, milk, Domestos"
+Step 1: Parse → [bread, milk, Domestos]
+Step 2: Analyze → bread=food, milk=food, Domestos=cleaner
+Step 3: Categorize → bread=Groceries, milk=Groceries, Domestos=Household Chemicals
+
+RESPONSE FORMAT: Valid JSON array only. No explanations.
+"""
+
+
+def _build_user_prompt(text: str, categories_str: str, date_context: str) -> str:
+    """Build user prompt with context"""
+    return f"""
+EXTRACT EXPENSES FROM TEXT:
+"{text}"
+
+{date_context}
+
+AVAILABLE CATEGORIES: {categories_str}
+
+REQUIRED JSON FIELDS:
+- date: YYYY-MM-DD format
+- amount: numeric value (in pounds/currency mentioned)
+- vendor: store/service name
+- category: ONE from available categories
+- description: single English noun (what was bought)
+
+Apply Chain of Thought methodology. Each product gets independent analysis.
+"""
+
+
+def _build_date_context(relative_date: Optional[datetime.datetime]) -> str:
+    """Build date context for the prompt"""
+    context = f"Today's date: {datetime.datetime.now().strftime('%Y-%m-%d')}"
+    if relative_date:
+        context += f"\nRelative date mentioned: {relative_date.strftime('%Y-%m-%d')}"
+    return context
+
+
+def _parse_ai_response(response_text: str) -> Optional[List[Dict]]:
+    """Parse and validate AI response"""
+    try:
+        # Extract JSON from response
         json_pattern = r'\[.*\]'
         json_match = re.search(json_pattern, response_text, re.DOTALL)
         json_str = json_match.group(0) if json_match else response_text
 
         if not json_str.strip():
-            logger.error("Empty or invalid JSON returned from OpenAI.")
+            logger.error("Empty JSON returned from AI")
             return None
 
         expenses = json.loads(json_str)
 
+        # Handle string response (sometimes AI returns escaped JSON)
         if isinstance(expenses, str):
-            try:
-                expenses = json.loads(expenses)
-            except Exception as e:
-                logger.error(f"Second JSON decode failed: {e}")
-                return None
+            expenses = json.loads(expenses)
 
-        # Jeśli LLM zwrócił pojedynczy obiekt, a nie listę — owiń w listę
+        # Ensure we have a list
         if isinstance(expenses, dict):
             expenses = [expenses]
 
         if not isinstance(expenses, list):
-            logger.error(f"Expected list of expenses, got {type(expenses).__name__}")
+            logger.error(f"Expected list, got {type(expenses).__name__}")
             return None
-
-        current_date = datetime.datetime.now()
-        current_year = current_date.year
-
-        for i, expense in enumerate(expenses):
-            if isinstance(expense, dict) and 'date' in expense and expense['date']:
-                try:
-                    expense_date = datetime.datetime.strptime(expense['date'], '%Y-%m-%d')
-
-                    if relative_date and relative_date.year >= current_year:
-                        expense['date'] = relative_date
-                    elif expense_date.year < current_year or expense_date > current_date:
-                        expense['date'] = current_date
-                    else:
-                        expense['date'] = expense_date
-
-                except Exception as e:
-                    logger.warning(f"Expense #{i + 1} - Error parsing date: {e}. Using fallback date.")
-                    expense[
-                        'date'] = relative_date if relative_date and relative_date.year >= current_year else current_date
-            else:
-                logger.warning(f"Expense #{i + 1} - Missing or invalid 'date' field. Assigning fallback date.")
-                expense[
-                    'date'] = relative_date if relative_date and relative_date.year >= current_year else current_date
-            if isinstance(expense, dict) and 'amount' in expense:
-                if amount is not None:
-                    expense['amount'] = amount
-                    expense['currency'] = currency
 
         return expenses
 
-    except Exception as e:
-        logger.error(f"Error in extract_with_llm: {str(e)}", exc_info=True)
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error: {e}")
         return None
 
-def parse_relative_date(text, language='pl'):
-    today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
+def _post_process_expenses(expenses: List[Dict], relative_date: Optional[datetime.datetime]) -> List[Dict]:
+    """Post-process expenses with date normalization"""
+    current_date = datetime.datetime.now()
+    current_year = current_date.year
+
+    for i, expense in enumerate(expenses):
+        # Process date
+        if isinstance(expense, dict) and 'date' in expense and expense['date']:
+            try:
+                expense_date = datetime.datetime.strptime(expense['date'], '%Y-%m-%d')
+
+                # Use relative date if valid and recent
+                if relative_date and relative_date.year >= current_year:
+                    expense['date'] = relative_date
+                elif expense_date.year < current_year or expense_date > current_date:
+                    expense['date'] = current_date
+                else:
+                    expense['date'] = expense_date
+
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Expense #{i + 1} - Date parsing error: {e}")
+                expense[
+                    'date'] = relative_date if relative_date and relative_date.year >= current_year else current_date
+        else:
+            logger.warning(f"Expense #{i + 1} - Missing date field")
+            expense['date'] = relative_date if relative_date and relative_date.year >= current_year else current_date
+
+        # Ensure required fields exist
+        expense.setdefault('amount', 0.0)
+        expense.setdefault('vendor', '')
+        expense.setdefault('category', 'Other')
+        expense.setdefault('description', '')
+
+    return expenses
+
+
+def _validate_categorization(expenses: List[Dict]) -> List[Dict]:
+    """
+    Post-validation to fix obvious AI categorization mistakes.
+    Senior-level rule-based fallback for AI edge cases.
+    """
+
+    # Common food items that should always be Groceries
+    food_items = {
+        'cucumber', 'tomato', 'potato', 'onion', 'carrot', 'lettuce', 'spinach',
+        'apple', 'banana', 'orange', 'grapes', 'strawberry', 'lemon',
+        'bread', 'milk', 'cheese', 'yogurt', 'butter', 'eggs',
+        'rice', 'pasta', 'flour', 'sugar', 'salt', 'pepper',
+        'chicken', 'beef', 'pork', 'fish', 'salmon', 'tuna'
+    }
+
+    # Cleaning products that should be Household Chemicals
+    cleaning_items = {
+        'domestos', 'bleach', 'detergent', 'soap', 'shampoo', 'toothpaste',
+        'toilet paper', 'tissues', 'kitchen roll', 'washing powder'
+    }
+
+    # Alcoholic beverages
+    alcohol_items = {
+        'beer', 'wine', 'vodka', 'whiskey', 'rum', 'gin', 'champagne',
+        'lager', 'ale', 'cider', 'spirits'
+    }
+
+    # Vendor name corrections
+    vendor_corrections = {
+        'feinsbery': "Sainsbury's",
+        'feinsbergen': "Sainsbury's",
+        'salisbury': "Sainsbury's",
+        'steinsberry': "Sainsbury's",
+        'azja': 'Asda',
+        'pc karys': 'PC Currys'
+    }
+
+    amount_corrections = {
+        'pęsów': 'pence',
+        'pensów': 'pence'
+    }
+
+    for expense in expenses:
+        if not isinstance(expense, dict) or 'description' not in expense:
+            continue
+
+        description_lower = expense['description'].lower()
+
+        # Fix food items incorrectly categorized
+        if description_lower in food_items and expense.get('category') != 'Groceries':
+            logger.info(f"Correcting {description_lower} from {expense.get('category')} to Groceries")
+            expense['category'] = 'Groceries'
+
+        # Fix cleaning items
+        elif description_lower in cleaning_items and expense.get('category') != 'Household Chemicals':
+            logger.info(f"Correcting {description_lower} from {expense.get('category')} to Household Chemicals")
+            expense['category'] = 'Household Chemicals'
+
+        # Fix alcohol items
+        elif description_lower in alcohol_items and expense.get('category') != 'Alcohol':
+            logger.info(f"Correcting {description_lower} from {expense.get('category')} to Alcohol")
+            expense['category'] = 'Alcohol'
+
+        # Fix vendor names
+        vendor_lower = expense.get('vendor', '').lower()
+        if vendor_lower in vendor_corrections:
+            logger.info(f"Correcting vendor '{expense.get('vendor')}' to '{vendor_corrections[vendor_lower]}'")
+            expense['vendor'] = vendor_corrections[vendor_lower]
+
+    return expenses
+
+
+def parse_relative_date(text: str, language: str = 'pl') -> Optional[datetime.datetime]:
+    """Parse relative date expressions from text"""
+    today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     text_lower = text.lower()
 
     relative_terms = {
@@ -220,73 +358,33 @@ def parse_relative_date(text, language='pl'):
         }
     }
 
-    day_words = {
-        'pl': {
-            'pierwszego': 1, 'pierwszy': 1, 'pierwszym': 1,
-            'drugiego': 2, 'drugi': 2, 'drugim': 2,
-            'trzeciego': 3, 'trzeci': 3, 'trzecim': 3,
-            'czwartego': 4, 'czwarty': 4, 'czwartym': 4,
-            'piątego': 5, 'piąty': 5, 'piątym': 5, 'piatego': 5,
-            'szóstego': 6, 'szósty': 6, 'szóstym': 6, 'szostego': 6,
-            'siódmego': 7, 'siódmy': 7, 'siódmym': 7, 'siodmego': 7,
-            'ósmego': 8, 'ósmy': 8, 'ósmym': 8, 'osmego': 8,
-            'dziewiątego': 9, 'dziewiąty': 9, 'dziewiątym': 9, 'dziewiatego': 9,
-            'dziesiątego': 10, 'dziesiąty': 10, 'dziesiątym': 10, 'dziesiatego': 10
-        },
-        'en': {
-            'first': 1, '1st': 1,
-            'second': 2, '2nd': 2,
-            'third': 3, '3rd': 3,
-            'fourth': 4, '4th': 4,
-            'fifth': 5, '5th': 5,
-            'sixth': 6, '6th': 6,
-            'seventh': 7, '7th': 7,
-            'eighth': 8, '8th': 8,
-            'ninth': 9, '9th': 9,
-            'tenth': 10, '10th': 10
-        }
-    }
-
-    # 1. Najpierw sprawdź daty względne
+    # Check relative terms
     for term, date in relative_terms.get(language, {}).items():
         if term in text_lower:
             return date
 
-    # Sprawdź w drugim języku
+    # Check other language
     other_lang = 'en' if language == 'pl' else 'pl'
     for term, date in relative_terms.get(other_lang, {}).items():
         if term in text_lower:
             return date
 
-    # 2. Szukaj konkretnej daty w formacie "dzień miesiąc" lub "słowny_dzień miesiąc"
+    # Check specific dates (day + month)
     for lang, month_dict in month_names.items():
         for month_name, month_num in month_dict.items():
-            # 2a. Sprawdź wzorzec: cyfra + nazwa miesiąca (np. "2 maja")
+            # Pattern: number + month name
             number_pattern = rf'(\d+)[^\d]*{month_name}'
             number_match = re.search(number_pattern, text_lower)
             if number_match:
                 day = int(number_match.group(1))
-                if 1 <= day <= 31:  # Sprawdź, czy dzień jest w prawidłowym zakresie
+                if 1 <= day <= 31:
                     year = today.year
                     try:
                         return datetime.datetime(year, month_num, day)
                     except ValueError:
-                        # Obsługa błędów np. 31 lutego
-                        continue  # Kontynuuj szukanie innych wzorców
-
-            # 2b. Sprawdź wzorzec: słowny dzień + nazwa miesiąca (np. "drugiego maja")
-            for day_word, day_num in day_words.get(lang, {}).items():
-                word_pattern = rf'{day_word}[^\w]*{month_name}'
-                word_match = re.search(word_pattern, text_lower)
-                if word_match:
-                    year = today.year
-                    try:
-                        return datetime.datetime(year, month_num, day_num)
-                    except ValueError:
-                        # Obsługa błędów
                         continue
 
-    # 3. Sprawdź format daty w tekście (np. "2023-05-02" lub "02.05.2023")
+    # Check date formats (YYYY-MM-DD, DD-MM-YYYY)
     date_patterns = [
         r'(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})',  # YYYY-MM-DD
         r'(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})',  # DD-MM-YYYY
@@ -304,170 +402,55 @@ def parse_relative_date(text, language='pl'):
             try:
                 return datetime.datetime(year, month, day)
             except ValueError:
-                # Nieprawidłowa data, kontynuuj szukanie
                 continue
 
     return None
 
 
-def extract_amount_and_currency(text):
-    """Wyodrębnia kwotę i walutę z tekstu"""
-    # Wzorce kwot z różnymi walutami
+# Legacy function aliases for backward compatibility
+def extract_with_llm(text: str) -> Optional[List[Dict]]:
+    """Legacy alias for extract_expenses_with_ai"""
+    return extract_expenses_with_ai(text)
+
+
+def enhance_with_llm(text: str, existing_expenses=None) -> Optional[List[Dict]]:
+    """Legacy alias for extract_expenses_with_ai"""
+    return extract_expenses_with_ai(text)
+
+
+def enhance_with_openai(text: str, existing_expenses=None) -> Optional[List[Dict]]:
+    """Legacy alias for extract_expenses_with_ai"""
+    return extract_expenses_with_ai(text)
+
+
+def extract_amount_and_currency(text: str) -> Tuple[Optional[float], str]:
+    """Extract amount and currency from text (legacy compatibility)"""
+    # Enhanced patterns for better recognition
     amount_patterns = [
-        r'(\d+[,.]\d+)\s*(?:zł|PLN|złotych)',  # np. "9,99 zł"
-        r'(\d+[,.]\d+)\s*(?:GBP|£|funtów)',  # np. "9.99 GBP"
-        r'(\d+[,.]\d+)',  # np. "9.99" (bez waluty)
+        r'£(\d+[,.]\d+)',  # £9.99
+        r'(\d+[,.]\d+)\s*(?:GBP|£|pounds?)',  # 9.99 GBP
+        r'(\d+[,.]\d+)\s*(?:zł|PLN|złotych)',  # 9.99 zł
+        r'(\d+[,.]\d+)\s*(?:EUR|euros?)',  # 9.99 EUR
+        r'(\d+[,.]\d+)',  # 9.99 (fallback)
     ]
 
-    # Domyślna waluta (GBP)
-    currency = 'GBP'
+    currency = 'GBP'  # Default currency
 
-    # Szukaj kwoty i waluty
     for pattern in amount_patterns:
-        match = re.search(pattern, text)
+        match = re.search(pattern, text, re.IGNORECASE)
         if match:
             amount_str = match.group(1).replace(',', '.')
-            amount = float(amount_str)
+            try:
+                amount = float(amount_str)
 
-            # Określ walutę
-            if 'zł' in text or 'PLN' in text or 'złotych' in text:
-                currency = 'PLN'
-                # Jeśli kwota jest w PLN, przelicz na GBP (jeśli potrzebne)
-                # Przykładowy kurs: 1 GBP = 5 PLN
-                if currency == 'PLN' and Config.CONVERT_CURRENCY:
-                    amount = round(amount / 5.0, 2)  # Przeliczenie PLN na GBP
+                # Determine currency
+                if any(curr in text.lower() for curr in ['zł', 'pln', 'złotych']):
+                    currency = 'PLN'
+                elif any(curr in text.lower() for curr in ['eur', 'euro']):
+                    currency = 'EUR'
 
-            return amount, currency
+                return amount, currency
+            except ValueError:
+                continue
 
-    # Jeśli nie znaleziono, zwróć None
-    return None, None
-
-def enhance_with_llm(text, existing_expenses=None):
-    try:
-        existing_info = ""
-        if existing_expenses:
-            if isinstance(existing_expenses, list):
-                for i, exp in enumerate(existing_expenses):
-                    existing_info += f"Expense {i + 1}: {exp}\n"
-            else:
-                existing_info = f"Partial info: {existing_expenses}\n"
-
-        system_prompt = """
-        You are a financial assistant that extracts expense information from text.
-        Extract precise details about expenses including dates, amounts, vendors, and categories.
-        Pay special attention to product type to determine the correct category.
-        For example:
-        - Cleaning products, detergents, soaps should be categorized as 'Household Chemicals'
-        - Food items should be categorized as 'Groceries'
-        - Alcoholic beverages should be categorized as 'Alcohol'
-        
-        IMPORTANT: Preserve the original date mentioned in the text. If a specific date like "2nd May" is mentioned, 
-        use that date, not today's date.
-        
-        IMPORTANT: Preserve the original currency. If an amount is in PLN (Polish Złoty), keep it as PLN and don't convert.
-        
-        Respond only with structured valid JSON data.
-        """
-
-        user_prompt = f"""
-        Extract and return expense information from the following text:
-
-        Text: \"{text}\"
-
-        {existing_info}
-
-        Return a JSON array of expenses with the following fields:
-        - date: in YYYY-MM-DD format (default to today if not mentioned)
-        - amount: numeric value (in pounds)
-        - vendor: store or service provider name
-        - category: one of [Fuel, Cosmetics, Groceries, Utilities, Rent, Entertainment, Transportation, Healthcare, Clothing, Education, Office supplies, Alcohol, Other]
-        - description: use just only substantive in brief description of the expense
-        """
-
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                ChatCompletionSystemMessageParam(role="system", content=system_prompt),
-                ChatCompletionUserMessageParam(role="user", content=user_prompt)
-            ],
-            temperature=0.1
-        )
-
-        response_text = response.choices[0].message.content.strip()
-
-        json_pattern = r'\[.*\]'
-        json_match = re.search(json_pattern, response_text, re.DOTALL)
-        json_str = json_match.group(0) if json_match else response_text
-
-        expenses = json.loads(json_str)
-
-        for expense in expenses:
-            if 'date' in expense and expense['date']:
-                try:
-                    expense['date'] = datetime.datetime.strptime(expense['date'], '%Y-%m-%d')
-                except:
-                    expense['date'] = datetime.datetime.now()
-
-        return expenses
-
-    except Exception as e:
-        logger.error(f"Error in LLM enhancement: {str(e)}", exc_info=True)
-        return None
-
-
-def enhance_with_openai(text, existing_expenses=None):
-    try:
-        existing_info = ""
-        if existing_expenses:
-            if isinstance(existing_expenses, list):
-                for i, exp in enumerate(existing_expenses):
-                    existing_info += f"Expense {i + 1}: {exp}\n"
-            else:
-                existing_info = f"Partial info: {existing_expenses}\n"
-
-        user_prompt = f"""
-        Extract expense information from the following text.
-
-        Text: \"{text}\"
-
-        {existing_info}
-
-        Extract and return a JSON array of expenses with the following fields:
-        - date: in YYYY-MM-DD format (default to today if not mentioned)
-        - amount: numeric value (in pounds)
-        - vendor: store or service provider name
-        - category: one of [Fuel, Cosmetics, Groceries, Utilities, Rent, Entertainment, Transportation, Healthcare, Clothing, Education, Other, Office supplies, Alcohol]
-        - description: use just only substantive in brief description of the expense
-        """
-
-        system_prompt = "You are a financial assistant. Return only valid JSON."
-
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                ChatCompletionSystemMessageParam(role="system", content=system_prompt),
-                ChatCompletionUserMessageParam(role="user", content=user_prompt)
-            ],
-            temperature=0.1
-        )
-
-        response_text = response.choices[0].message.content.strip()
-
-        json_pattern = r'\[.*\]'
-        json_match = re.search(json_pattern, response_text, re.DOTALL)
-        json_str = json_match.group(0) if json_match else response_text
-
-        expenses = json.loads(json_str)
-
-        for expense in expenses:
-            if 'date' in expense and expense['date']:
-                try:
-                    expense['date'] = datetime.datetime.strptime(expense['date'], '%Y-%m-%d')
-                except:
-                    expense['date'] = datetime.datetime.now()
-
-        return expenses
-
-    except Exception as e:
-        logger.error(f"Error in OpenAI enhancement: {str(e)}", exc_info=True)
-        return None
+    return None, currency

@@ -1,9 +1,3 @@
-"""
-Moduł core zawiera kluczowe komponenty biznesowe aplikacji Expense Tracker.
-
-Ten moduł grupuje funkcjonalności odpowiedzialne za logikę biznesową przetwarzania
-wydatków, generowania raportów i uczenia maszynowego.
-"""
 import os
 import logging
 

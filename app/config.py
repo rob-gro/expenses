@@ -14,7 +14,7 @@ class Config:
     DB_HOST = os.environ.get('DB_HOST')
     DB_USER = os.environ.get('DB_USER')
     DB_PASSWORD = os.environ.get('DB_PASSWORD')
-    DB_NAME = os.environ.get('DB_NAME')
+    ENVIRONMENT = os.environ.get('ENVIRONMENT', 'prod')
 
     # File upload settings
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', '../uploads')
@@ -25,7 +25,8 @@ class Config:
     OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 
     # Application URL (for links in emails)
-    APP_URL = os.environ.get('APP_URL', 'http://localhost:5000')
+    # APP_URL = os.environ.get('APP_URL', 'http://localhost:5000')
+    # APP_URL = os.environ.get('APP_URL', 'https://expenses.robgro.dev')
 
     # Discord settings
     DISCORD_BOT_TOKEN = os.environ.get('DISCORD_BOT_TOKEN')
@@ -59,7 +60,7 @@ class Config:
     def validate_config(cls):
         """Walidacja czy wszystkie wymagane zmienne środowiskowe są ustawione"""
         required_vars = [
-            'DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME',
+            'DB_HOST', 'DB_USER', 'DB_PASSWORD',
             'OPENAI_API_KEY', 'SECRET_KEY', 'EMAIL_PASSWORD',
             'DISCORD_BOT_TOKEN'
         ]
@@ -71,3 +72,39 @@ class Config:
                 f"Brak wymaganych zmiennych środowiskowych: {', '.join(missing_vars)}. "
                 f"Sprawdź plik .env lub zmienne środowiskowe."
             )
+
+    # AlwaysData specific settings
+    def __init__(self):
+        load_dotenv()
+        self.ENVIRONMENT = os.environ.get('ENVIRONMENT', 'prod')
+
+        if self.ENVIRONMENT == 'test':
+            self.DB_NAME = 'robgro_test_expenses'
+            # Test - lokalne ścieżki Windows
+            self.UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', 'uploads')
+            self.REPORT_FOLDER = os.environ.get('REPORT_FOLDER', 'reports')
+            self.APP_URL = 'http://localhost:5000'
+        else:
+            self.DB_NAME = 'robgro_expenses'
+            # Prod - ścieżki AlwaysData
+            self.UPLOAD_FOLDER = '/www/expenses/uploads'
+            self.REPORT_FOLDER = '/www/expenses/reports'
+            self.APP_URL = 'https://expenses.robgro.dev'
+
+    @classmethod
+    def get_db_config(cls):
+        """Get database config for AlwaysData or local environment"""
+        if os.environ.get('ALWAYSDATA_ENV'):
+            return {
+                'host': 'mysql-robgro.alwaysdata.net',
+                'user': 'robgro',
+                'password': cls.DB_PASSWORD,
+                'database': 'robgro_expenses'
+            }
+        else:
+            return {
+                'host': cls.DB_HOST,
+                'user': cls.DB_USER,
+                'password': cls.DB_PASSWORD,
+                'database': cls.DB_NAME
+            }

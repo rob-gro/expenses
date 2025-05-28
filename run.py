@@ -38,16 +38,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Inicjalizacja bazy danych
+config = Config()
+db_name = config.DB_NAME
+
 db_manager = DBManager(
     host=app.config['DB_HOST'],
     user=app.config['DB_USER'],
     password=app.config['DB_PASSWORD'],
-    database=app.config['DB_NAME']
+    database=db_name
 )
 
 # Inicjalizacja modeli spaCy
-nlp = spacy.load('en_core_web_sm')  # Model angielski
-nlp_pl = spacy.load('pl_core_news_sm')  # Model polski
+nlp = spacy.load('en_core_web_sm')
+nlp_pl = spacy.load('pl_core_news_sm')
 
 # Tworzenie katalogów
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)

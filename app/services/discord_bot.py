@@ -26,13 +26,13 @@ logger = logging.getLogger(__name__)
 email_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="email_worker")
 
 # DB manager initialization
+config = Config()
 db_manager = DBManager(
     host=Config.DB_HOST,
     user=Config.DB_USER,
     password=Config.DB_PASSWORD,
-    database=Config.DB_NAME
+    database=config.DB_NAME
 )
-
 
 @bot.event
 async def on_ready():

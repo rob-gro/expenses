@@ -1,17 +1,7 @@
-# Standardowe biblioteki Pythona
 import os
 import logging
 
-# Import głównej klasy z tego pakietu
 from app.database.db_manager import DBManager
-
-"""
-Moduł database zawiera komponenty odpowiedzialne za zarządzanie
-dostępem do bazy danych w aplikacji Expense Tracker.
-
-Dostarcza abstrakcyjną warstwę dostępu do danych, umożliwiającą
-operacje CRUD na wydatkach, kategoriach i raportach.
-"""
 
 # Lista publicznych komponentów eksportowanych przez ten pakiet
 __all__ = ['DBManager']

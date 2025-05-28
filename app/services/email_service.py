@@ -7,16 +7,16 @@ from email.mime.text import MIMEText
 from app.config import Config
 import logging
 from app.database.db_manager import DBManager
-from app.core.report_generator import send_report_email
 from app.nlp.nlp_category_parser import extract_category_from_text, extract_date_range_from_text
 
 logger = logging.getLogger(__name__)
 
+config = Config()
 db = DBManager(
     host=Config.DB_HOST,
     user=Config.DB_USER,
     password=Config.DB_PASSWORD,
-    database=Config.DB_NAME
+    database=config.DB_NAME
 )
 
 def send_email(recipient, subject, body, attachments=None):
@@ -169,13 +169,9 @@ def send_category_confirmation_notification(expense, current_category, predicted
                     <li>Vendor: {expense['vendor'] or 'Not specified'}</li>
                     <li>Description: {expense['description'] or 'None'}</li>
                 </ul>
-
                 <p>Currently assigned category: <strong>{current_category}</strong></p>
-
                 <p>Predicted category: <strong>{predicted_category or 'No confident prediction'}</strong></p>
-
                 <p>To confirm the category, click on one of the links below:</p>
-
                 <ul>
                     <li><a href="{Config.APP_URL}/confirm-category/{expense['id']}/{current_category}">Confirm current category: {current_category}</a></li>
 
@@ -236,6 +232,7 @@ def try_generate_report_from_text(transcription):
     if category or start_date:
         logger.info(
             f"Generating report - Category: {category or 'All'}, Date range: {start_date or 'All time'} to {end_date or 'Present'}")
+        from app.core.report_generator import send_report_email
         send_report_email(
             category=category,
             start_date=start_date,

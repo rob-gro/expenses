@@ -1,10 +1,8 @@
-# Standardowe biblioteki Pythona
 import logging
 import spacy
 import os
 import sys
 
-# Importy z modułów NLP
 from app.nlp.expense_extractor import (
     extract_with_llm,
     enhance_with_llm,
@@ -95,7 +93,6 @@ def _check_openai_configuration():
         )
     else:
         logger.info("OpenAI API key is configured")
-
 
 # Uruchamiane przy inicjalizacji pakietu
 try:
