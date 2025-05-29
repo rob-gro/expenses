@@ -1,14 +1,28 @@
 import sys
 import os
 
+# Ścieżka do aplikacji na AlwaysData
+sys.path.insert(0, '/home/robgro/expenses')
 
-# Dodaj katalog aplikacji do ścieżki systemowej
-path = os.path.dirname(os.path.abspath(__file__))
-if path not in sys.path:
-    sys.path.append(path)
+# Ustawienia dla AlwaysData
+os.environ.setdefault('ENVIRONMENT', 'production')
+os.environ.setdefault('ALWAYSDATA_ENV', '1')
 
-from run import app as application
+try:
+    from run import app as application
 
-# Opcjonalnie dla debugowania
-if __name__ == "__main__":
-    application.run()
+    # Upewnij się, że katalogi istnieją
+    os.makedirs('/home/robgro/expenses/uploads', exist_ok=True)
+    os.makedirs('/home/robgro/expenses/reports', exist_ok=True)
+    os.makedirs('/home/robgro/expenses/models', exist_ok=True)
+
+except Exception as e:
+    # Fallback - stwórz minimalną aplikację dla debugowania
+    from flask import Flask
+
+    application = Flask(__name__)
+
+
+    @application.route('/')
+    def debug():
+        return f"Import error: {str(e)}"
