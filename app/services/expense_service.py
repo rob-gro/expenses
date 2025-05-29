@@ -12,7 +12,6 @@ from app.services.transcription import transcribe_audio
 from app.nlp.expense_extractor import extract_expenses_with_ai
 from app.services.category_service import detect_category_command
 from app.services.email_service import send_email, send_category_confirmation_notification
-from app.core.expense_learner import ExpenseLearner
 from app.database.db_manager import DBManager
 
 logger = logging.getLogger(__name__)
@@ -24,7 +23,6 @@ class ExpenseService:
     def __init__(self, db_manager: DBManager, upload_folder: str):
         self.db_manager = db_manager
         self.upload_folder = upload_folder
-        self.expense_learner = ExpenseLearner(db_manager)
 
     def process_audio_expense(self, file_object, email: Optional[str] = None) -> Dict:
         """
@@ -157,7 +155,9 @@ class ExpenseService:
             self.db_manager.update_pending_categorization(expense_id, status='confirmed')
 
             # Train model incrementally
-            self.expense_learner.incremental_train(expense_id, confirmed_category)
+            from app.core.expense_learner import ExpenseLearner
+            learner = ExpenseLearner(self.db_manager)
+            learner.incremental_train(expense_id, confirmed_category)
 
             return {"success": True, "message": "Category confirmed successfully"}
 
@@ -204,7 +204,9 @@ class ExpenseService:
             Dict with training result
         """
         try:
-            success = self.expense_learner.train_model()
+            from app.core.expense_learner import ExpenseLearner
+            learner = ExpenseLearner(self.db_manager)
+            success = learner.train_model()
 
             if success:
                 return {"success": True, "message": "Model trained successfully"}

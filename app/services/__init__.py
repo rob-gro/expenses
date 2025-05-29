@@ -18,7 +18,7 @@ from app.services.email_service import (
     try_generate_report_from_text
 )
 from app.services.transcription import transcribe_audio, convert_audio_to_wav
-from app.services.discord_bot import run_discord_bot
+
 
 # Eksportujemy funkcje, które powinny być dostępne z poziomu pakietu
 __all__ = [

@@ -10,8 +10,6 @@ from app.config import Config
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Set OpenAI API key
-client = OpenAI(api_key=Config.OPENAI_API_KEY)
 
 def convert_audio_to_wav(input_file):
     """Convert audio file to WAV format for better compatibility with Whisper"""
@@ -53,6 +51,7 @@ def transcribe_audio(audio_file_path):
     Returns the transcription text
     """
     try:
+        client = OpenAI(api_key=Config.OPENAI_API_KEY)
         # Convert audio to WAV format if needed
         file_ext = os.path.splitext(audio_file_path)[1].lower()
         if file_ext != '.wav':

@@ -26,13 +26,13 @@ logger = logging.getLogger(__name__)
 email_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="email_worker")
 
 # DB manager initialization
-config = Config()
-db_manager = DBManager(
-    host=Config.DB_HOST,
-    user=Config.DB_USER,
-    password=Config.DB_PASSWORD,
-    database=config.DB_NAME
-)
+# config = Config()
+# db_manager = DBManager(
+#     host=Config.DB_HOST,
+#     user=Config.DB_USER,
+#     password=Config.DB_PASSWORD,
+#     database=config.DB_NAME
+# )
 
 @bot.event
 async def on_ready():
@@ -53,6 +53,14 @@ async def on_message(message):
 
 async def process_discord_audio(message, attachment):
     try:
+        config = Config()
+        db_manager = DBManager(
+            host=Config.DB_HOST,
+            user=Config.DB_USER,
+            password=Config.DB_PASSWORD,
+            database=config.DB_NAME
+        )
+
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(attachment.filename)[1])
         temp_file.close()
 

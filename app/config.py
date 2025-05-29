@@ -78,15 +78,24 @@ class Config:
         load_dotenv()
         self.ENVIRONMENT = os.environ.get('ENVIRONMENT', 'prod')
 
-        if self.ENVIRONMENT == 'test':
+        if os.environ.get('ALWAYSDATA_ENV'):
+            self.ENVIRONMENT = 'production'     # NIE WIEM CZY TO TUTAJ POWINNO BYĆ
+            self.DB_NAME = 'robgro_expenses'
+            self.UPLOAD_FOLDER = '/home/robgro/expenses/uploads'
+            self.REPORT_FOLDER = '/home/robgro/expenses/reports'
+            self.APP_URL = 'https://robgro.alwaysdata.net'
+
+        # Dostęp do zmiennych w .env
+        use_local_paths = os.environ.get('USE_LOCAL_PATHS', 'False') == 'True'
+
+        # Używamy lokalnych ścieżek jeśli jawnie określono lub jesteśmy w środowisku testowym
+        if use_local_paths or self.ENVIRONMENT == 'test':
             self.DB_NAME = 'robgro_test_expenses'
-            # Test - lokalne ścieżki Windows
             self.UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', 'uploads')
             self.REPORT_FOLDER = os.environ.get('REPORT_FOLDER', 'reports')
             self.APP_URL = 'http://localhost:5000'
         else:
             self.DB_NAME = 'robgro_expenses'
-            # Prod - ścieżki AlwaysData
             self.UPLOAD_FOLDER = '/www/expenses/uploads'
             self.REPORT_FOLDER = '/www/expenses/reports'
             self.APP_URL = 'https://expenses.robgro.dev'

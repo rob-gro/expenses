@@ -81,6 +81,7 @@ def schedule_model_training():
 def start_discord_bot():
     """Start Discord bot in a separate thread"""
     try:
+        from app.services.discord_bot import run_discord_bot
         logger.info("Starting Discord bot in background thread")
         discord_thread = threading.Thread(target=run_discord_bot)
         discord_thread.daemon = True

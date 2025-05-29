@@ -11,13 +11,7 @@ from app.nlp.nlp_category_parser import extract_category_from_text, extract_date
 
 logger = logging.getLogger(__name__)
 
-config = Config()
-db = DBManager(
-    host=Config.DB_HOST,
-    user=Config.DB_USER,
-    password=Config.DB_PASSWORD,
-    database=config.DB_NAME
-)
+
 
 def send_email(recipient, subject, body, attachments=None):
     """Send email with optional attachments and better error handling"""
@@ -200,6 +194,13 @@ def send_category_confirmation_notification(expense, current_category, predicted
 
 def try_generate_report_from_text(transcription):
     """Attempt to generate a report based on transcribed text"""
+    config = Config()
+    db = DBManager(
+        host=Config.DB_HOST,
+        user=Config.DB_USER,
+        password=Config.DB_PASSWORD,
+        database=config.DB_NAME
+    )
 
     report_keywords = ['raport', 'report', 'zestawienie', 'podsumowanie', 'wyślij raport',
                        'generuj raport', 'stwórz raport', 'wygeneruj raport']

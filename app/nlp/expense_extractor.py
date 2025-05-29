@@ -15,19 +15,6 @@ from app.config import Config
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Set OpenAI API client
-client = OpenAI(api_key=Config.OPENAI_API_KEY)
-
-# Initialize DB manager
-config = Config()
-db = DBManager(
-    host=Config.DB_HOST,
-    user=Config.DB_USER,
-    password=Config.DB_PASSWORD,
-    database=config.DB_NAME
-)
-
-
 def extract_expenses_with_ai(text: str) -> Optional[List[Dict]]:
     """
     Main function to extract expense information from text using AI.
@@ -39,6 +26,15 @@ def extract_expenses_with_ai(text: str) -> Optional[List[Dict]]:
         List of expense dictionaries or None if extraction fails
     """
     try:
+        client = OpenAI(api_key=Config.OPENAI_API_KEY)
+        config = Config()
+        db = DBManager(
+            host=Config.DB_HOST,
+            user=Config.DB_USER,
+            password=Config.DB_PASSWORD,
+            database=config.DB_NAME
+        )
+
         # Check if this is a category addition command
         is_category_command, category_name = category_service.detect_category_command(text)
         if is_category_command and category_name:
