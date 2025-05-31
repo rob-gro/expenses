@@ -80,6 +80,10 @@ def schedule_model_training():
 # Funkcja do uruchomienia bota Discord
 def start_discord_bot():
     """Start Discord bot in a separate thread"""
+    if os.environ.get('ALWAYSDATA_ENV'):
+        logger.info("Discord bot disabled on AlwaysData")
+        return
+
     try:
         from app.services.discord_bot import run_discord_bot
         logger.info("Starting Discord bot in background thread")
@@ -91,8 +95,8 @@ def start_discord_bot():
     except Exception as e:
         logger.error(f"Error starting Discord bot: {str(e)}")
 
+
 if __name__ == '__main__':
-    # Zabezpieczenie przed podwójnym uruchomieniem (Flask debug reload)
     if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.config['DEBUG']:
         try:
             schedule_model_training()
@@ -102,7 +106,7 @@ if __name__ == '__main__':
         except Exception as e:
             logger.error(f"Error starting model training scheduler: {str(e)}")
 
-        # Uruchom bota Discord tylko raz
+        # Discord bot - wyłączony na AlwaysData
         try:
             start_discord_bot()
             logger.info("Discord bot started")

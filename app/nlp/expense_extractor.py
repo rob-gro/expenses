@@ -301,6 +301,37 @@ def parse_relative_date(text: str, language: str = 'pl') -> Optional[datetime.da
     today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     text_lower = text.lower()
 
+    # Enhanced day names mapping
+    days_pl = {
+        'poniedziałek': 0, 'poniedzialek': 0,
+        'wtorek': 1,
+        'środa': 2, 'sroda': 2, 'środę': 2, 'srodę': 2,
+        'czwartek': 4,
+        'piątek': 4, 'piatek': 4,
+        'sobota': 5, 'sobotę': 5, 'sobote': 5,
+        'niedziela': 6, 'niedzielę': 6, 'niedziele': 6
+    }
+
+    days_en = {'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3, 'friday': 4, 'saturday': 5, 'sunday': 6}
+
+    # Enhanced patterns
+    patterns = [
+        (r'(?:ostatni[ąe]?|w\s+ostatni[ąe]?)\s+(\w+)', days_pl),
+        (r'(?:last|on\s+last)\s+(\w+)', days_en)
+    ]
+
+    for pattern, day_map in patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            day_name = match.group(1)
+            if day_name in day_map:
+                target_weekday = day_map[day_name]
+                days_back = (today.weekday() - target_weekday) % 7
+                if days_back == 0:
+                    days_back = 7
+                logger.info(f"Parsed '{day_name}' -> {target_weekday}, going back {days_back} days")
+                return today - datetime.timedelta(days=days_back)
+
     relative_terms = {
         'pl': {
             'dzisiaj': today,

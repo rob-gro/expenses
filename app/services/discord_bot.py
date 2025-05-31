@@ -25,18 +25,35 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 logger = logging.getLogger(__name__)
 email_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="email_worker")
 
-# DB manager initialization
-# config = Config()
-# db_manager = DBManager(
-#     host=Config.DB_HOST,
-#     user=Config.DB_USER,
-#     password=Config.DB_PASSWORD,
-#     database=config.DB_NAME
-# )
 
 @bot.event
 async def on_ready():
     print(f'Bot logged in as {bot.user}')
+
+
+# processed_messages = set()
+#
+#
+# @bot.event
+# async def on_message(message):
+#     if message.author.bot:
+#         return
+#
+#     # Deduplikacja
+#     if message.id in processed_messages:
+#         return
+#     processed_messages.add(message.id)
+#
+#     # Czyść cache co 100 wiadomości
+#     if len(processed_messages) > 100:
+#         processed_messages.clear()
+#
+#     for attachment in message.attachments:
+#         if any(attachment.filename.lower().endswith(ext) for ext in ['.mp3', '.wav', '.ogg', '.m4a']):
+#             await process_discord_audio(message, attachment)
+#             return
+#
+#     await bot.process_commands(message)
 
 
 @bot.event
@@ -47,11 +64,28 @@ async def on_message(message):
     for attachment in message.attachments:
         if any(attachment.filename.lower().endswith(ext) for ext in ['.mp3', '.wav', '.ogg', '.m4a']):
             await process_discord_audio(message, attachment)
+            return
 
     await bot.process_commands(message)
 
 
+processed_messages = set()
+
 async def process_discord_audio(message, attachment):
+    # Deduplikacja
+    if message.id in processed_messages:
+        return
+    processed_messages.add(message.id)
+
+    # Czyść co 100 wiadomości
+    if len(processed_messages) > 100:
+        processed_messages.clear()
+
+    #
+    # if hasattr(message, '_processed'):
+    #     return
+    # message._processed = True
+
     try:
         config = Config()
         db_manager = DBManager(

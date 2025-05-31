@@ -709,11 +709,12 @@ def send_report_email(category=None, start_date=None, end_date=None, recipient=N
         logger = logging.getLogger(__name__)
 
         # Initialize DB manager if not already available
+        config = Config()
         db_manager = DBManager(
             host=Config.DB_HOST,
             user=Config.DB_USER,
             password=Config.DB_PASSWORD,
-            database=Config.DB_NAME
+            database=config.DB_NAME
         )
 
         # Generate the report with specified format
