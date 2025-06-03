@@ -53,8 +53,8 @@ nlp = spacy.load('en_core_web_sm')
 nlp_pl = spacy.load('pl_core_news_sm')
 
 # Tworzenie katalogów
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-os.makedirs(app.config['REPORT_FOLDER'], exist_ok=True)
+os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(config.REPORT_FOLDER, exist_ok=True)
 
 # Rejestracja tras API i widoków
 register_api_routes(app)
@@ -67,7 +67,7 @@ def schedule_model_training():
         learner = ExpenseLearner(db_manager)
         learner.train_model()
 
-    schedule.every().monday.at("03:00").do(train_job)
+    schedule.every().sunday.at("01:00").do(train_job)
 
     def run_scheduler():
         while True:

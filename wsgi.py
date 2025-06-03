@@ -1,35 +1,10 @@
-# import sys
-# import os
-#
-# # Ścieżka do aplikacji
-# sys.path.insert(0, '/home/robgro/www/expenses')
-#
-# # Zmienne środowiskowe dla AlwaysData
-# os.environ.setdefault('ENVIRONMENT', 'production')
-# os.environ.setdefault('ALWAYSDATA_ENV', '1')
-#
-# try:
-#     from app import create_app
-#     from app.config import Config
-#
-#     application = create_app(Config)
-#
-# except Exception as e:
-#     from flask import Flask
-#
-#     application = Flask(__name__)
-#
-#
-#     @application.route('/')
-#     def debug():
-#         return f"Error: {str(e)}"
-
 import sys
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 sys.path.insert(0, '/home/robgro/www/expenses')
-os.environ.setdefault('ENVIRONMENT', 'production')
-os.environ.setdefault('ALWAYSDATA_ENV', '1')
 
 try:
     # Test podstawowych importów
