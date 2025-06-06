@@ -15,3 +15,8 @@ def register_view_routes(app):
     def index_alt():
         """Alternatywny endpoint dla /index"""
         return render_template('index.html')
+
+    @app.route('/model-metrics')
+    def model_metrics_page():
+        """Endpoint do wyświetlenia strony z metrykami modelu"""
+        return render_template('model_metrics.html')

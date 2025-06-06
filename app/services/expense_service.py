@@ -8,6 +8,7 @@ import logging
 from typing import Dict, List, Optional
 from werkzeug.utils import secure_filename
 
+from app.core.vector_expense_learner import QdrantExpenseLearner
 from app.services.transcription import transcribe_audio
 from app.nlp.expense_extractor import extract_expenses_with_ai
 from app.services.category_service import detect_category_command
@@ -23,6 +24,7 @@ class ExpenseService:
     def __init__(self, db_manager: DBManager, upload_folder: str):
         self.db_manager = db_manager
         self.upload_folder = upload_folder
+        self.vector_learner = QdrantExpenseLearner(db_manager)
 
     def process_audio_expense(self, file_object, email: Optional[str] = None) -> Dict:
         """
@@ -204,12 +206,22 @@ class ExpenseService:
             Dict with training result
         """
         try:
-            from app.core.expense_learner import ExpenseLearner
-            learner = ExpenseLearner(self.db_manager)
-            success = learner.train_model()
+            # Wybierz model klasyfikacji - tradycyjny lub wektorowy
+            use_vector_model = os.getenv("USE_VECTOR_MODEL", "False").lower() == "true"
+
+            if use_vector_model:
+                from app.core.vector_expense_learner import QdrantExpenseLearner
+                learner = QdrantExpenseLearner(self.db_manager)
+                success = learner.train_model()
+                message = "Vector model trained successfully"
+            else:
+                from app.core.expense_learner import ExpenseLearner
+                learner = ExpenseLearner(self.db_manager)
+                success = learner.train_model()
+                message = "Traditional model trained successfully"
 
             if success:
-                return {"success": True, "message": "Model trained successfully"}
+                return {"success": True, "message": message}
             else:
                 return {"success": False, "message": "Not enough data to train model"}
 

@@ -177,3 +177,45 @@ def register_api_routes(app):
         except Exception as e:
             logger.error(f"Error in train_expense_model endpoint: {str(e)}", exc_info=True)
             return jsonify({"error": f"Failed to train model: {str(e)}"}), 500
+
+    @app.route('/api/model-metrics', methods=['GET'])
+    def get_model_metrics():
+        """Get model training history and metrics"""
+        try:
+            with db_manager._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT id, timestamp, accuracy, samples_count, 
+                               categories_count, training_type, notes
+                        FROM model_metrics
+                        ORDER BY timestamp DESC
+                        LIMIT 50
+                    """)
+                    metrics = cursor.fetchall()
+
+                    # Konwertuj timestamp na string
+                    for m in metrics:
+                        m['timestamp'] = m['timestamp'].isoformat()
+
+                    # Pobierz najnowszą macierz pomyłek
+                    if metrics:
+                        cursor.execute("""
+                            SELECT confusion_matrix
+                            FROM model_metrics
+                            ORDER BY timestamp DESC
+                            LIMIT 1
+                        """)
+                        latest = cursor.fetchone()
+                        confusion_data = json.loads(latest['confusion_matrix'])
+                    else:
+                        confusion_data = {}
+
+                    return jsonify({
+                        "success": True,
+                        "metrics": metrics,
+                        "confusion_data": confusion_data,
+                        "current_accuracy": metrics[0]['accuracy'] if metrics else None
+                    })
+        except Exception as e:
+            logger.error(f"Error fetching model metrics: {str(e)}", exc_info=True)
+            return jsonify({"error": f"Failed to fetch metrics: {str(e)}"}), 500
