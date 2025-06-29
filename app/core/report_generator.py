@@ -99,7 +99,10 @@ def create_visualizations(df, report_name, category=None):
 
     try:
         # Create directory for charts
-        chart_dir = os.path.join(Config.REPORT_FOLDER, 'charts')
+        config = Config()
+
+        # Create directory for charts
+        chart_dir = os.path.join(config.REPORT_FOLDER, 'charts')
         os.makedirs(chart_dir, exist_ok=True)
 
         # 1. Spending over time chart (line chart)
@@ -306,8 +309,10 @@ def create_visualizations(df, report_name, category=None):
 def generate_excel_report(grouped_df, detailed_df, chart_paths, report_name, category=None):
     """Generate Excel report with multiple sheets and embedded charts"""
     try:
+        config = Config()
+
         # Create Excel writer
-        report_path = os.path.join(Config.REPORT_FOLDER, f"{report_name}.xlsx")
+        report_path = os.path.join(config.REPORT_FOLDER, f"{report_name}.xlsx")
 
         # Create a Pandas Excel writer using XlsxWriter engine
         with pd.ExcelWriter(report_path, engine='xlsxwriter') as writer:
@@ -375,8 +380,10 @@ def generate_excel_report(grouped_df, detailed_df, chart_paths, report_name, cat
 def generate_csv_report(grouped_df, detailed_df, report_name):
     """Generate CSV report files"""
     try:
+        config = Config()  # Już istnieje, ale musisz używać tej instancji
+
         # Create directory for the report
-        report_dir = os.path.join(Config.REPORT_FOLDER, report_name)
+        report_dir = os.path.join(config.REPORT_FOLDER, report_name)  # Użyj instancji
         os.makedirs(report_dir, exist_ok=True)
 
         # Save summary data
@@ -397,8 +404,7 @@ def generate_csv_report(grouped_df, detailed_df, report_name):
             f.write(f"2. {report_name}_detailed.csv - Detailed expense data with individual transactions\n")
 
         # Create a zip file containing all CSV files
-
-        zip_path = os.path.join(Config.REPORT_FOLDER, f"{report_name}.zip")
+        zip_path = os.path.join(config.REPORT_FOLDER, f"{report_name}.zip")  # Użyj instancji
         with zipfile.ZipFile(zip_path, 'w') as zip_file:
             zip_file.write(summary_path, os.path.basename(summary_path))
             zip_file.write(detailed_path, os.path.basename(detailed_path))
@@ -413,8 +419,10 @@ def generate_csv_report(grouped_df, detailed_df, report_name):
 def generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, category=None):
     """Generate professional PDF report with data tables and charts"""
     try:
+        config = Config()
+
         # Create PDF file path
-        pdf_path = os.path.join(Config.REPORT_FOLDER, f"{report_name}.pdf")
+        pdf_path = os.path.join(config.REPORT_FOLDER, f"{report_name}.pdf")
 
         # Create the PDF document with custom styling
         doc = SimpleDocTemplate(pdf_path, pagesize=A4,
@@ -691,83 +699,194 @@ def generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, categ
         logger.error(f"Error generating PDF report: {str(e)}", exc_info=True)
         raise
 
+
 def send_report_email(category=None, start_date=None, end_date=None, recipient=None, format_type='excel'):
     """
-    Generate and send an expense report via email based on the specified category and date range
-
-    Args:
-        category (str, optional): Category to filter expenses by
-        start_date (str, optional): Start date for the report period (YYYY-MM-DD)
-        end_date (str, optional): End date for the report period (YYYY-MM-DD)
-        recipient (str, optional): Email recipient, defaults to Config.DEFAULT_EMAIL_RECIPIENT
-        format_type (str, optional): Report format type ('excel', 'pdf', or 'csv')
+    Generate and send an expense report via email with error handling and fallback options.
 
     Returns:
-        bool: True if report was generated and sent successfully, False otherwise
+        dict: Status information including success flag and details
     """
     try:
-        logger = logging.getLogger(__name__)
-
-        # Initialize DB manager if not already available
+        # Inicjalizacja konfiguracji i logowanie rozpoczęcia operacji
         config = Config()
-        db_manager = DBManager(
-            host=Config.DB_HOST,
-            user=Config.DB_USER,
-            password=Config.DB_PASSWORD,
-            database=config.DB_NAME
-        )
+        logger.info(
+            f"Starting report generation: category={category}, period={start_date or 'all time'} to {end_date or 'present'}, format={format_type}")
 
-        # Generate the report with specified format
-        report_file, report_type, format_type = generate_report(
-            db_manager=db_manager,
-            category=category,
-            start_date=start_date,
-            end_date=end_date,
-            group_by='month',
-            format_type=format_type
-        )
+        # Walidacja wejścia
+        if format_type not in ['excel', 'pdf', 'csv']:
+            logger.warning(f"Invalid format type '{format_type}' - defaulting to excel")
+            format_type = 'excel'
 
-        # Default recipient if not specified
-        recipient = recipient or Config.DEFAULT_EMAIL_RECIPIENT
+        db_manager = get_db_connection(config)
+        try:
+            report_file, report_type, format_type = generate_report(
+                db_manager=db_manager,
+                category=category,
+                start_date=start_date,
+                end_date=end_date,
+                group_by='month',
+                format_type=format_type
+            )
+            logger.info(f"Report generated successfully: {report_file}")
+        except Exception as report_error:
+            logger.error(f"Report generation failed: {str(report_error)}", exc_info=True)
+            return {
+                'success': False,
+                'stage': 'generation',
+                'error': str(report_error)
+            }
 
+        # Ustalenie odbiorcy z failsafe
+        recipient = recipient or config.DEFAULT_EMAIL_RECIPIENT
+        if not recipient:
+            logger.error("No recipient specified and no default recipient configured")
+            return {'success': False, 'stage': 'preparation', 'error': 'No recipient specified'}
+
+        # Przygotowanie e-maila z odpowiednią obsługą błędów
+        try:
+            # Użycie funkcji z module email_service do przygotowania i wysłania e-maila
+            from app.services.email_service import send_email
+
+            # Przygotowanie treści e-maila
+            subject = f"Expense Report: {category or 'All Categories'}"
+            body = f"""
+            <html>
+                <body>
+                    <h2>Expense Report</h2>
+                    <p>In the attachment you will find an expense report for category: <strong>{category or 'All Categories'}</strong>.</p>
+                    <p>Date range: {start_date or 'All time'} - {end_date or 'Present'}</p>
+                    <p>--<br>This is an automated message.</p>
+                </body>
+            </html>
+            """
+
+            # Weryfikacja czy plik istnieje przed próbą odczytu
+            if not os.path.exists(report_file):
+                logger.error(f"Report file does not exist: {report_file}")
+                return {'success': False, 'stage': 'attachment', 'error': 'Report file not found'}
+
+            # Odczyt pliku z obsługą błędów
+            try:
+                with open(report_file, 'rb') as f:
+                    file_content = f.read()
+            except (IOError, PermissionError) as file_error:
+                logger.error(f"Could not read report file: {str(file_error)}", exc_info=True)
+                return {'success': False, 'stage': 'file_reading', 'error': str(file_error)}
+
+            # Wysłanie e-maila z wykorzystaniem modułu email_service z obsługą błędów SMTP
+            email_result = send_email(
+                recipient=recipient,
+                subject=subject,
+                body=body,
+                attachments={os.path.basename(report_file): file_content}
+            )
+
+            if not email_result:
+                # Spróbuj alternatywne metody wysyłki - implementacja strategii alternatywnych
+                logger.warning("Primary email sending method failed, trying alternative method")
+                email_result = _send_email_alternative(recipient, subject, body, report_file)
+
+            if email_result:
+                logger.info(f"Report email sent successfully to {recipient}")
+                return {'success': True, 'recipient': recipient, 'report_file': report_file}
+            else:
+                logger.error(f"All email sending methods failed for recipient {recipient}")
+                return {'success': False, 'stage': 'sending', 'error': 'Email sending failed'}
+
+        except Exception as email_error:
+            logger.error(f"Error preparing or sending email: {str(email_error)}", exc_info=True)
+            return {'success': False, 'stage': 'email_preparation', 'error': str(email_error)}
+
+    except Exception as e:
+        logger.error(f"Unexpected error in send_report_email: {str(e)}", exc_info=True)
+        return {'success': False, 'stage': 'unexpected', 'error': str(e)}
+
+
+def _send_email_alternative(recipient, subject, body, attachment_path):
+    """
+    Alternatywna metoda wysyłania e-maila - używana gdy główna metoda zawiedzie.
+    Może używać innego portu SMTP, innego serwera lub innej metody uwierzytelnienia.
+
+    Returns:
+        bool: True jeśli udało się wysłać e-mail, False w przeciwnym wypadku
+    """
+    try:
+        config = Config()
+
+        # Przygotowanie wiadomości
         msg = MIMEMultipart()
-        msg['Subject'] = f"Expense Report: {category or 'All Categories'}"
-        msg['From'] = Config.EMAIL_SENDER
+        msg['Subject'] = subject
+        msg['From'] = config.EMAIL_SENDER
         msg['To'] = recipient
-
-        # Email body text
-        body = f"""
-        <html>
-            <body>
-                <h2>Expense Report</h2>
-                <p>In the attachment you will find an expense report for category: {category or 'All Categories'}.</p>
-                <p>Date range: {start_date or 'All time'} - {end_date or 'Present'}</p>
-                <p>--<br>This is an automated message.</p>
-            </body>
-        </html>
-        """
-
         msg.attach(MIMEText(body, 'html'))
 
-        # Attach the report file
-        with open(report_file, 'rb') as file:
+        # Dołącz załącznik
+        with open(attachment_path, 'rb') as file:
             attachment = MIMEApplication(file.read())
             attachment.add_header(
                 'Content-Disposition',
                 'attachment',
-                filename=os.path.basename(report_file)
+                filename=os.path.basename(attachment_path)
             )
             msg.attach(attachment)
 
-        # Send the email
-        with smtplib.SMTP(Config.SMTP_SERVER, Config.SMTP_PORT) as server:
-            server.starttls()
-            server.login(Config.EMAIL_USER, Config.EMAIL_PASSWORD)
-            server.send_message(msg)
+        # Alternatywna metoda - próba połączenia przez SSL zamiast TLS
+        try:
+            with smtplib.SMTP_SSL(config.SMTP_SERVER, 465, timeout=10) as server:
+                server.login(config.EMAIL_USER, config.EMAIL_PASSWORD)
+                server.send_message(msg)
+                logger.info(f"Alternative method (SSL) succeeded for {recipient}")
+                return True
+        except Exception as ssl_error:
+            logger.warning(f"SSL method failed: {str(ssl_error)}")
 
-        logger.info(f"Report email sent to {recipient}")
-        return True
+            # Spróbuj inny serwer jako ostateczność
+            backup_server = config.BACKUP_SMTP_SERVER if hasattr(config, 'BACKUP_SMTP_SERVER') else None
+            if backup_server:
+                try:
+                    with smtplib.SMTP(backup_server, config.SMTP_PORT, timeout=10) as server:
+                        server.starttls()
+                        server.login(config.EMAIL_USER, config.EMAIL_PASSWORD)
+                        server.send_message(msg)
+                        logger.info(f"Backup server method succeeded for {recipient}")
+                        return True
+                except Exception as backup_error:
+                    logger.error(f"Backup server method failed: {str(backup_error)}")
+
+        return False
 
     except Exception as e:
-        logger.error(f"Error sending report email: {e}")
+        logger.error(f"Alternative email sending method failed: {str(e)}", exc_info=True)
         return False
+
+class DBContextManager:
+    """Context manager wrapper for DBManager"""
+
+    def __init__(self, config):
+        self.config = config
+        self.db_manager = None
+
+    def __enter__(self):
+        """Initialize and return DBManager instance"""
+        self.db_manager = DBManager(
+            host=self.config.DB_HOST,
+            user=self.config.DB_USER,
+            password=self.config.DB_PASSWORD,
+            database=self.config.DB_NAME
+        )
+        return self.db_manager
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Clean up resources if needed"""
+        # Currently DBManager doesn't need explicit cleanup
+        pass
+
+# Funkcja get_db_connection bez żadnych klas - zwraca normalny DBManager
+def get_db_connection(config):
+    return DBManager(
+        host=config.DB_HOST,
+        user=config.DB_USER,
+        password=config.DB_PASSWORD,
+        database=config.DB_NAME
+    )

@@ -19,6 +19,18 @@ class DBManager:
         self.database = database
         self._ensure_database_setup()
 
+    # Plik db_manager.py - dodaj te metody do klasy DBManager
+
+    def __enter__(self):
+        """Implementacja protokołu context manager"""
+        # Zwróć instancję jako zarządzany zasób
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Obsługa zakończenia bloku kontekstowego"""
+        # W przyszłości można tutaj dodać zamykanie połączeń lub czyszczenie zasobów
+        pass
+
     def _get_connection(self):
         """Create and return a database connection"""
         return pymysql.connect(

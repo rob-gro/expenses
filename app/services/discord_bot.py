@@ -15,7 +15,6 @@ from app.services.email_service import send_confirmation_email, send_category_ad
 from app.services.email_service import try_generate_report_from_text
 from concurrent.futures import ThreadPoolExecutor
 
-
 # Bot configuration
 intents = discord.Intents.default()
 intents.message_content = True
@@ -24,6 +23,11 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 # Get logger instance
 logger = logging.getLogger(__name__)
 email_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="email_worker")
+sent_confirmations = set()
+
+# Zbiory dla deduplikacji
+processed_messages = set()
+processed_audio = set()
 
 
 @bot.event
@@ -31,35 +35,23 @@ async def on_ready():
     print(f'Bot logged in as {bot.user}')
 
 
-# processed_messages = set()
-#
-#
-# @bot.event
-# async def on_message(message):
-#     if message.author.bot:
-#         return
-#
-#     # Deduplikacja
-#     if message.id in processed_messages:
-#         return
-#     processed_messages.add(message.id)
-#
-#     # Czyść cache co 100 wiadomości
-#     if len(processed_messages) > 100:
-#         processed_messages.clear()
-#
-#     for attachment in message.attachments:
-#         if any(attachment.filename.lower().endswith(ext) for ext in ['.mp3', '.wav', '.ogg', '.m4a']):
-#             await process_discord_audio(message, attachment)
-#             return
-#
-#     await bot.process_commands(message)
-
-
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
+
+    # Deduplikacja z uwzględnieniem zawartości
+    message_key = f"{message.id}_{message.content}"
+    if message_key in processed_messages:
+        logger.info(f"Skipping duplicate message: {message.id}")
+        return
+
+    processed_messages.add(message_key)
+
+    # Czyść cache co 100 wiadomości
+    if len(processed_messages) > 100:
+        processed_messages.clear()
+        processed_messages.add(message_key)
 
     for attachment in message.attachments:
         if any(attachment.filename.lower().endswith(ext) for ext in ['.mp3', '.wav', '.ogg', '.m4a']):
@@ -69,22 +61,20 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-processed_messages = set()
+# Dodaj tę zmienną na poziomie globalnym
+sent_confirmations = set()
+
 
 async def process_discord_audio(message, attachment):
-    # Deduplikacja
-    if message.id in processed_messages:
+    # Specjalny znacznik dla każdego audio
+    audio_key = f"{message.id}_{attachment.filename}_{attachment.size}"
+
+    # Sprawdź czy już przetworzono to audio
+    if audio_key in processed_audio:
+        logger.warning(f"Skipping already processed audio: {attachment.filename}")
         return
-    processed_messages.add(message.id)
 
-    # Czyść co 100 wiadomości
-    if len(processed_messages) > 100:
-        processed_messages.clear()
-
-    #
-    # if hasattr(message, '_processed'):
-    #     return
-    # message._processed = True
+    processed_audio.add(audio_key)
 
     try:
         config = Config()
@@ -131,9 +121,21 @@ async def process_discord_audio(message, attachment):
                 return
 
             # If not a category command, check if it's a report request
-            if try_generate_report_from_text(transcription):
-                await message.channel.send("📧 Report has been sent to your email.")
+            # Dodaj unikalny identyfikator dla tego żądania raportu
+            request_id = f"{message.id}_{transcription}"
+
+            # Sprawdź czy już wysłano potwierdzenie dla tego żądania
+            if request_id in sent_confirmations:
+                logger.warning(f"Duplicate report confirmation prevented for message {message.id}")
                 return
+
+            # Jeśli jest to żądanie raportu
+            if "report" in transcription.lower() or "raport" in transcription.lower():
+                report_generated = try_generate_report_from_text(transcription)
+                if report_generated:
+                    sent_confirmations.add(request_id)  # Oznacz jako potwierdzone
+                    await message.channel.send("📧 Report has been sent to your email.")
+                    return
 
             # If not a category command or report request, try to extract expenses
             expenses = extract_with_llm(transcription)
