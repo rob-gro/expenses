@@ -26,7 +26,7 @@ class QdrantExpenseLearner:
         # Załaduj model embeddings
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
         self.vector_size = self.embedding_model.get_sentence_embedding_dimension()
-        self.min_samples_per_category = 3
+        self.min_samples_per_category = 5
 
         # Połącz z Qdrant
         self.client = QdrantClient(
@@ -119,7 +119,7 @@ class QdrantExpenseLearner:
                         results = self.client.search(
                             collection_name=temp_collection,
                             query_vector=vector.tolist(),
-                            limit=3
+                            limit=7
                         )
 
                         if results:

@@ -52,6 +52,10 @@ async def on_message(message):
     if len(processed_messages) > 100:
         processed_messages.clear()
         processed_messages.add(message_key)
+        
+    # Czyść cache confirmations co 50 elementów
+    if len(sent_confirmations) > 50:
+        sent_confirmations.clear()
 
     for attachment in message.attachments:
         if any(attachment.filename.lower().endswith(ext) for ext in ['.mp3', '.wav', '.ogg', '.m4a']):
@@ -61,20 +65,17 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-# Dodaj tę zmienną na poziomie globalnym
-sent_confirmations = set()
-
-
 async def process_discord_audio(message, attachment):
     # Specjalny znacznik dla każdego audio
     audio_key = f"{message.id}_{attachment.filename}_{attachment.size}"
 
     # Sprawdź czy już przetworzono to audio
     if audio_key in processed_audio:
-        logger.warning(f"Skipping already processed audio: {attachment.filename}")
+        logger.warning(f"DUPLICATE AUDIO DETECTED: Skipping {attachment.filename} for message {message.id}")
         return
 
     processed_audio.add(audio_key)
+    logger.info(f"Processing new audio: {attachment.filename} for message {message.id}")
 
     try:
         config = Config()
@@ -159,6 +160,20 @@ async def process_discord_audio(message, attachment):
                 if expense_id:
                     expense_ids.append(expense_id)
 
+            # Utwórz unikalny identyfikator dla tej odpowiedzi
+            response_id = f"{message.id}_{len(expenses)}_{hash(transcription)}"
+            
+            logger.info(f"Checking response_id: {response_id}")
+            logger.info(f"Current sent_confirmations size: {len(sent_confirmations)}")
+            
+            # Sprawdź czy już wysłano tę odpowiedź
+            if response_id in sent_confirmations:
+                logger.warning(f"Duplicate expense response prevented for message {message.id} - response_id: {response_id}")
+                return
+            
+            sent_confirmations.add(response_id)
+            logger.info(f"Added response_id to sent_confirmations: {response_id}")
+            
             response = "✅ Recognized expenses:\n"
             for expense in expenses:
                 expense_date = expense.get('date')
@@ -169,12 +184,29 @@ async def process_discord_audio(message, attachment):
 
                 response += f"- {date_str}: {expense.get('vendor', 'Unknown store')} - £{expense.get('amount', 0)} ({expense.get('category', 'Other category')})\n"
 
+            # Ostatnie zabezpieczenie przed Discord API
+            send_key = f"send_{message.id}_{hash(response)}"
+            if send_key in sent_confirmations:
+                logger.warning(f"Discord send already attempted for message {message.id}")
+                return
+            
+            sent_confirmations.add(send_key)
+            logger.info(f"Sending Discord response for message {message.id}: {len(expenses)} expenses")
             await message.channel.send(response)
+            logger.info(f"Discord response sent successfully for message {message.id}")
 
-            try:
-                send_confirmation_email(expenses)
-            except Exception as e:
-                logger.warning(f"Failed to send confirmation email: {e}")
+            # Wysyłaj email tylko jeśli wydatki zostały rzeczywiście dodane
+            if expense_ids:
+                try:
+                    email_id = f"email_{message.id}_{hash(transcription)}"
+                    if email_id not in sent_confirmations:
+                        send_confirmation_email(expenses)
+                        sent_confirmations.add(email_id)
+                        logger.info(f"Confirmation email sent for message {message.id}")
+                    else:
+                        logger.warning(f"Duplicate email prevented for message {message.id}")
+                except Exception as e:
+                    logger.warning(f"Failed to send confirmation email: {e}")
 
         except Exception as e:
             logger.error(f"Error processing audio in Discord bot: {str(e)}", exc_info=True)

@@ -1,4 +1,6 @@
-const API_BASE_URL = 'http://localhost:5000';
+const API_BASE_URL = window.location.hostname === 'localhost'
+    ? 'http://localhost:5000'
+    : window.location.origin;
 // DOM elements
 const recordButton = document.getElementById('recordButton');
 const stopButton = document.getElementById('stopButton');
@@ -536,9 +538,46 @@ document.getElementById('manualExpenseForm').addEventListener('submit', function
     });
 });
 
+// Funkcja do trenowania modelu
+function trainExpenseModel() {
+    const trainButton = document.getElementById('trainModelButton');
+    if (trainButton) {
+        trainButton.disabled = true;
+        trainButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Training...';
+    }
+
+    fetch(`${API_BASE_URL}/api/train-expense-model`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('Success', 'Model trained successfully!', true);
+        } else {
+            showNotification('Error', data.error || 'Failed to train model.', false);
+        }
+    })
+    .catch(error => {
+        showNotification('Error', 'Failed to connect to the server. Please try again.', false);
+        console.error('Error:', error);
+    })
+    .finally(() => {
+        if (trainButton) {
+            trainButton.disabled = false;
+            trainButton.innerHTML = 'Train Model';
+        }
+    });
+}
+
 // Inicjalizacja przy ładowaniu dokumentu
 document.addEventListener('DOMContentLoaded', function() {
     loadCategories();
     initExpenseRecording();
     initReportRecording();
+    
+    // Dodaj obsługę przycisku treningowego
+    const trainButton = document.getElementById('trainModelButton');
+    if (trainButton) {
+        trainButton.addEventListener('click', trainExpenseModel);
+    }
 });

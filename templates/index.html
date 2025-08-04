@@ -11,6 +11,8 @@
     <div class="container">
         <h1 class="text-center mb-4">Expense Tracker</h1>
 
+ale ja dodawałem raz, raz, czyli porp raz, czyli poprawnie
+
         <div class="row">
             <div class="col-md-12">
                 <ul class="nav nav-tabs" id="myTab" role="tablist">
@@ -200,6 +202,7 @@
 
                                     <div class="text-center">
                                         <button type="submit" class="btn btn-primary">Generate Report</button>
+                                        <button type="button" id="trainModelButton" class="btn btn-warning ms-2" onclick="fetch('/api/train-expense-model', {method: 'POST'}).then(r => r.json()).then(d => alert(d.success ? 'Training successful!' : 'Error: ' + d.error)).catch(e => alert('Error: ' + e))">Train Model</button>
                                     </div>
                                 </form>
 
