@@ -16,37 +16,34 @@ logger = logging.getLogger(__name__)
 
 def process_audio_file(file_object, upload_folder, db_manager, email=None):
     """
-    Przetwarza plik audio z nagraniem wydatku, wykonuje transkrypcję,
-    ekstrahuje dane wydatku i zapisuje do bazy danych.
-
     Args:
-        file_object: Obiekt pliku z nagraniem (np. z request.files['file'])
-        upload_folder: Ścieżka do katalogu na przesłane pliki
-        db_manager: Instancja DBManager do interakcji z bazą danych
-        email: Opcjonalny adres email do wysłania potwierdzenia
+        file_object: File object with recording (e.g. from request.files['file'])
+        upload_folder: Path to directory for uploaded files
+        db_manager: DBManager instance for database interaction
+        email: Optional email address to send confirmation
 
     Returns:
-        dict: Słownik zawierający wynik przetwarzania (success/error, dane wydatków)
+        dict: Dictionary containing processing result (success/error, expense data)
     """
     try:
-        # Zapisz przesłany plik
+        # Save uploaded file
         filename = secure_filename(f"{uuid.uuid4()}_{file_object.filename}")
         file_path = os.path.join(upload_folder, filename)
         file_object.save(file_path)
         logger.info(f"Saved audio file: {file_path}")
 
-        # Wykonaj transkrypcję audio
+        # Perform audio transcription
         transcription = transcribe_audio(file_path)
         logger.info(f"Transcription: {transcription}")
 
-        # Sprawdź, czy to komenda dodania kategorii
+        # Check if this is an add category command
         is_category_command, category_name = detect_category_command(transcription)
 
         if is_category_command and category_name:
-            # Przetwórz komendę dodania kategorii
+            # Process add category command
             success, message = db_manager.add_category(category_name)
 
-            # Wyślij powiadomienie email o dodaniu kategorii
+            # Send email notification about category addition
             if email:
                 send_email(
                     recipient=email,
@@ -71,30 +68,30 @@ def process_audio_file(file_object, upload_folder, db_manager, email=None):
                 "category_name": category_name
             }
 
-        # Wyodrębnij informacje o wydatkach
+        # Extract expense information
         expenses = enhance_with_llm(transcription)
         logger.info(f"Extracted expenses: {expenses}")
 
         if not expenses:
             return {"success": False, "error": "Could not recognize expenses in the recording."}
 
-        # Zapisz do bazy danych
+        # Saving to the database
         expense_ids = []
         expense_details = []
 
         for expense in expenses:
-            # Określ, czy potrzebne jest potwierdzenie kategorii
+            # Determine if category confirmation is needed
             needs_confirmation = False
             predicted_category = None
             category_confidence = 0.0
             alternative_categories = []
 
-            # Przykładowa logika określania, czy potrzebne jest potwierdzenie
+            # Example logic for determining if confirmation is needed
             if hasattr(expense, 'category_confidence') and expense.category_confidence < 0.8:
                 needs_confirmation = True
                 predicted_category = expense.get('category')
                 category_confidence = expense.get('category_confidence', 0.0)
-                # Dodaj alternatywne kategorie, jeśli są dostępne
+                # Add alternative categories if available
                 if hasattr(expense, 'alternative_categories'):
                     alternative_categories = expense.alternative_categories
 
@@ -124,7 +121,7 @@ def process_audio_file(file_object, upload_folder, db_manager, email=None):
                     "description": expense.get('description', '')
                 })
 
-        # Przygotuj treść emaila
+        # Prepare email content
         if email:
             email_body = f"""
             <html>
@@ -152,7 +149,7 @@ def process_audio_file(file_object, upload_folder, db_manager, email=None):
             except Exception as e:
                 logger.error(f"Error sending confirmation email: {str(e)}")
 
-        # Zwróć odpowiedź sukcesu
+        # Return success response
         response_data = {
             "success": True,
             "message": "Audio processed successfully",
@@ -170,21 +167,21 @@ def process_audio_file(file_object, upload_folder, db_manager, email=None):
 
 def process_manual_expense(expense_data, db_manager):
     """
-    Przetwarza ręcznie wprowadzone dane wydatku i zapisuje do bazy danych.
+    Processes manually entered expense data and saves it to the database.
 
     Args:
-        expense_data: Słownik z danymi wydatku (date, amount, vendor, category, description)
-        db_manager: Instancja DBManager do interakcji z bazą danych
+        expense_data: Dictionary with expense data (date, amount, vendor, category, description)
+        db_manager: DBManager instance for database interaction
 
     Returns:
-        dict: Słownik zawierający wynik przetwarzania (success/error, expense_id)
+        dict: Dictionary containing processing result (success/error, expense_id)
     """
     try:
-        # Waliduj wymagane pola
+        # Validate required fields
         if not expense_data.get('date') or not expense_data.get('amount'):
             return {"success": False, "error": "Date and amount are required fields"}
 
-        # Konwertuj datę z formatu string do obiektu datetime
+        # Convert date from string format to datetime object
         try:
             if isinstance(expense_data.get('date'), str):
                 expense_date = datetime.datetime.strptime(expense_data.get('date'), '%Y-%m-%d')
@@ -193,21 +190,21 @@ def process_manual_expense(expense_data, db_manager):
         except ValueError:
             return {"success": False, "error": "Invalid date format. Use YYYY-MM-DD"}
 
-        # Spróbuj sparsować kwotę jako float
+        # Try to parse amount as float
         try:
             amount = float(expense_data.get('amount'))
         except ValueError:
             return {"success": False, "error": "Invalid amount value"}
 
-        # Określ, czy potrzebne jest potwierdzenie kategorii
+        # Determining whether category confirmation is needed
         needs_confirmation = False
         predicted_category = None
         alternative_categories = []
 
-        # Dla ręcznie wprowadzonych wydatków zwykle nie jest potrzebne potwierdzenie
-        # ale można dodać logikę biznesową w razie potrzeby
+        # For manually entered expenses, confirmation is usually not needed
+        # but business logic can be added if necessary
 
-        # Dodaj wydatek do bazy danych
+        # Add expense to database
         expense_id = db_manager.add_expense(
             date=expense_date,
             amount=amount,
@@ -236,20 +233,20 @@ def process_manual_expense(expense_data, db_manager):
 
 def process_report_request(report_params, db_manager, email=None):
     """
-    Generuje raport wydatków na podstawie podanych parametrów.
+    Generates expense report based on given parameters.
 
     Args:
-        report_params: Słownik z parametrami raportu (category, start_date, end_date, group_by, format)
-        db_manager: Instancja DBManager do interakcji z bazą danych
-        email: Opcjonalny adres email do wysłania raportu
+        report_params: Dictionary with report parameters (category, start_date, end_date, group_by, format)
+        db_manager: DBManager instance for database interaction
+        email: Optional email address to send the report
 
     Returns:
-        dict: Słownik zawierający wynik generowania raportu (success/error, report_id)
+        dict: Dictionary containing report generation result (success/error, report_id)
     """
     try:
         from app.core.report_generator import generate_report
 
-        # Generuj raport
+        # Generate report
         report_file, report_type, format_type = generate_report(
             db_manager,
             report_params.get('category'),
@@ -259,14 +256,14 @@ def process_report_request(report_params, db_manager, email=None):
             report_params.get('format', 'excel')
         )
 
-        # Zapisz informacje o raporcie do bazy danych
+        # Save report information to database
         report_id = db_manager.add_report(
             report_type=report_type,
             parameters=json.dumps(report_params),
             file_path=report_file
         )
 
-        # Wyślij email z raportem, jeśli podano adres email
+        # Send email with report if email address is provided
         if email:
             with open(report_file, 'rb') as f:
                 file_content = f.read()

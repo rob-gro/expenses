@@ -44,6 +44,15 @@ def create_app(config_object=None):
         from app.config import Config
         app.config.from_object(Config)
 
+        # Log environment info
+        logger.info("=" * 60)
+        logger.info(f"🚀 STARTING APPLICATION")
+        logger.info(f"📌 ENVIRONMENT: {Config.ENVIRONMENT}")
+        logger.info(f"🗄️  DATABASE: {Config.DB_NAME}")
+        logger.info(f"🔗 DATABASE HOST: {Config.DB_HOST}")
+        logger.info(f"🌐 APP URL: {Config.APP_URL}")
+        logger.info("=" * 60)
+
     # Upewnij się, że katalogi istnieją
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs(app.config['REPORT_FOLDER'], exist_ok=True)

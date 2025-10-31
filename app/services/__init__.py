@@ -1,15 +1,8 @@
-"""
-Moduł services zawiera usługi pomocnicze i integracje zewnętrzne używane przez aplikację Expense Tracker.
-
-Ten moduł udostępnia funkcjonalności takie jak wysyłanie e-maili, przetwarzanie audio,
-zarządzanie kategoriami, transkrypcję nagrań oraz integrację z Discordem.
-"""
-
 import logging
 
-# Importujemy główne funkcjonalności z podmodułów
 from app.services.audio_processor import process_audio_file
 from app.services.category_service import detect_category_command, translate_category_with_llm, add_category
+from app.services.discord_bot import run_discord_bot
 from app.services.email_service import (
     send_email,
     send_confirmation_email,
@@ -20,7 +13,7 @@ from app.services.email_service import (
 from app.services.transcription import transcribe_audio, convert_audio_to_wav
 
 
-# Eksportujemy funkcje, które powinny być dostępne z poziomu pakietu
+# Export the functions that should be accessible at the package level
 __all__ = [
     # Audio processing
     'process_audio_file',
@@ -45,23 +38,14 @@ __all__ = [
     'run_discord_bot'
 ]
 
-# Metadane pakietu
+# Package metadata
 __version__ = '1.0.0'
-
-# Konfiguracja usług w momencie importu
-
 
 logger = logging.getLogger(__name__)
 logger.info("Initializing services module")
 
-
-# Opcjonalnie możesz dodać kod inicjalizujący dla usług
-# Na przykład, sprawdzenie dostępności kluczy API lub konfiguracji
 def _validate_service_requirements():
-    """
-    Sprawdza, czy wszystkie wymagane konfiguracje usług są dostępne.
-    Loguje ostrzeżenia, jeśli któraś wymagana konfiguracja jest brakująca.
-    """
+
     from app.config import Config
 
     required_configs = {
@@ -88,8 +72,6 @@ def _validate_service_requirements():
         else:
             logger.info(f"Service '{service_name}' configuration validated successfully")
 
-
-# Walidacja wymagań usług podczas inicjalizacji
 try:
     _validate_service_requirements()
 except Exception as e:

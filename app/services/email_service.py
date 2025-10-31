@@ -12,7 +12,6 @@ from app.nlp.nlp_category_parser import extract_category_from_text, extract_date
 logger = logging.getLogger(__name__)
 
 
-
 def send_email(recipient, subject, body, attachments=None):
     """Send email with optional attachments and better error handling"""
     try:
@@ -29,9 +28,7 @@ def send_email(recipient, subject, body, attachments=None):
                 attachment['Content-Disposition'] = f'attachment; filename="{filename}"'
                 msg.attach(attachment)
 
-        # Próbuj połączyć się używając IPv4
         try:
-            # Wymuszenie korzystania z IPv4
             server = smtplib.SMTP(Config.SMTP_SERVER, Config.SMTP_PORT,
                                 local_hostname=None, source_address=('0.0.0.0', 0))
             server.starttls()
@@ -148,7 +145,7 @@ def send_category_confirmation_notification(expense, current_category, predicted
             logger.error("Cannot send notification - expense details not provided")
             return False
 
-        # Utwórz treść powiadomienia
+        # Message content
         subject = "Category Confirmation Required"
 
         body = f"""
@@ -171,7 +168,7 @@ def send_category_confirmation_notification(expense, current_category, predicted
 
                     {f'<li><a href="{Config.APP_URL}/confirm-category/{expense["id"]}/{predicted_category}">Confirm predicted category: {predicted_category}</a></li>' if predicted_category else ''}
 
-                    {''.join([f'<li><a href="{Config.APP_URL}/confirm-category/{expense["id"]}/{alt["category"]}">Use category: {alt["category"]} (confidence: {alt["confidence"]:.0%})</a></li>' for alt in alternatives])}
+            {''.join([f'<li><a href="{Config.APP_URL}/confirm-category/{expense["id"]}/{alt["category"]}">Use category: {alt["category"]} (confidence: {alt["confidence"]:.0%})</a></li>' for alt in alternatives])}
 
                     <li><a href="{Config.APP_URL}/edit-expense/{expense['id']}">Edit expense details</a></li>
                 </ul>
@@ -179,7 +176,6 @@ def send_category_confirmation_notification(expense, current_category, predicted
         </html>
         """
 
-        # Wyślij email
         send_email(
             recipient=Config.DEFAULT_EMAIL_RECIPIENT,
             subject=subject,
@@ -207,7 +203,7 @@ def try_generate_report_from_text(transcription):
 
     is_report_command = any(keyword in transcription.lower() for keyword in report_keywords)
 
-    # Jeśli nie ma wyraźnych słów kluczowych raportu, nie kontynuuj
+    # If there are no clear report keywords, do not proceed
     if not is_report_command:
         logger.info(f"Transkrypcja nie zawiera komend raportowania: '{transcription}'")
         return False

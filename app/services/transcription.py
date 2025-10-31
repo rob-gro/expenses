@@ -17,7 +17,6 @@ def convert_audio_to_wav(input_file):
         base_name = os.path.splitext(os.path.basename(input_file))[0]
         output_file = os.path.join(tempfile.gettempdir(), f"{base_name}.wav")
 
-        # Sprawdź, czy ffmpeg jest dostępny
         try:
             subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
         except (subprocess.SubprocessError, FileNotFoundError):
@@ -38,7 +37,6 @@ def convert_audio_to_wav(input_file):
 
     except subprocess.CalledProcessError as e:
         logger.error(f"Error converting audio: {str(e)}")
-        # Jeśli konwersja nie powiodła się, zwróć oryginalny plik
         return input_file
     except Exception as e:
         logger.error(f"Unexpected error during audio conversion: {str(e)}", exc_info=True)

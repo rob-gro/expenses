@@ -107,9 +107,9 @@ def create_visualizations(df, report_name, category=None):
 
         # 1. Spending over time chart (line chart)
         if 'period_label' in df.columns and 'total_amount' in df.columns:
-            # Sprawdź, czy mamy dane liczbowe dla wykresów
+            # Check if we have numeric data for charts
             if df['total_amount'].sum() > 0 and df['total_amount'].notna().sum() > 0:
-                # Logowanie danych do diagnozy
+                # Logging data for diagnostics
                 logger.info(f"Creating time chart. Data shape: {df.shape}")
                 logger.info(f"Period labels: {df['period_label'].unique().tolist()}")
                 logger.info(f"Total amount sum: {df['total_amount'].sum()}")
@@ -121,15 +121,15 @@ def create_visualizations(df, report_name, category=None):
 
                     if not pivot_df.empty and pivot_df.size > 0 and pivot_df.notna().sum().sum() > 0:
                         try:
-                            # Użyj backendu Agg dla matplotlib
+                            # Use Agg backend for matplotlib
                             import matplotlib
                             matplotlib.use('Agg')
 
-                            # Stwórz figurę
+                            # Create figure
                             fig = plt.figure(figsize=(10, 6))
                             ax = fig.add_subplot(111)
 
-                            # Narysuj wykres
+                            # Drawing a chart
                             pivot_df.plot(kind='line', marker='o', ax=ax)
 
                             ax.set_title('Spending Over Time')
@@ -148,41 +148,39 @@ def create_visualizations(df, report_name, category=None):
                     else:
                         logger.warning("Skipping multi-category time chart - insufficient data in pivot table")
                 else:
-                    # Grupowanie i sortowanie według zdefiniowanego klucza chronologicznego
+                    # Grouping and sorting by a defined chronological key
                     def period_to_sortable(period):
                         if '-' in period:
                             parts = period.split('-')
-                            if len(parts) == 2:  # Format YYYY-WW (rok-tydzień)
+                            if len(parts) == 2:  # Format YYYY-WW (year-week)
                                 year, week = parts
-                                # Upewnij się, że tydzień jest numeryczny dla poprawnego sortowania
                                 try:
                                     return f"{year}-{int(week):02d}"
                                 except ValueError:
                                     pass
                         return period
 
-                    # Grupowanie według period_label
+                    # Grouping by period_label
                     grouped = df.groupby('period_label')['total_amount'].sum()
 
-                    # Utworzenie nowego Series z posortowanymi indeksami
+                    # Creating a new Series with sorted indices
                     sorted_indices = sorted(grouped.index, key=period_to_sortable)
                     time_series = pd.Series([grouped[i] for i in sorted_indices], index=sorted_indices)
                     logger.info(f"Time series data for category '{category}': {time_series.to_dict()}")
 
                     if len(time_series) > 0:
                         try:
-                            # Użyj backendu Agg dla matplotlib
+                            # Use Agg backend for matplotlib
                             import matplotlib
                             matplotlib.use('Agg')
 
-                            # Upewnij się, że dane są liczbowe
                             time_series = time_series.astype(float)
 
-                            # Stwórz figurę
+                            # Create figure
                             fig = plt.figure(figsize=(10, 6))
                             ax = fig.add_subplot(111)
 
-                            # Narysuj wykres
+                            # Drawing a chart
                             time_series.plot(kind='line', marker='o', color='blue', ax=ax)
 
                             ax.set_title('Spending Over Time')
@@ -213,11 +211,11 @@ def create_visualizations(df, report_name, category=None):
                 try:
                     matplotlib.use('Agg')
 
-                    # Stwórz figurę
+                    # Create a figure
                     fig = plt.figure(figsize=(10, 8))
                     ax = fig.add_subplot(111)
 
-                    # Narysuj wykres kołowy
+                    # Draw a pie chart
                     wedges, texts, autotexts = ax.pie(
                         category_totals,
                         labels=category_totals.index,
@@ -244,10 +242,10 @@ def create_visualizations(df, report_name, category=None):
             # Check if we have valid data for bar chart
             if df['total_amount'].sum() > 0 and df['period_label'].nunique() > 0:
                 try:
-                    # Użyj backendu Agg dla matplotlib
+                    # Use the Agg backend for matplotlib
                     matplotlib.use('Agg')
 
-                    # Stwórz figurę
+                    # Create a figure
                     fig = plt.figure(figsize=(12, 7))
                     ax = fig.add_subplot(111)
 
@@ -266,14 +264,14 @@ def create_visualizations(df, report_name, category=None):
                             logger.warning("Skipping comparison chart - insufficient pivot data")
                             return chart_paths
                     else:
-                        # Grupowanie według period_label
+                        # Grouping by period_label
                         grouped = df.groupby('period_label')['total_amount'].sum()
 
-                        # Utworzenie nowego Series z posortowanymi indeksami
+                        # Creating a new Series with sorted indices
                         sorted_indices = sorted(grouped.index, key=period_to_sortable)
                         monthly_totals = pd.Series([grouped[i] for i in sorted_indices], index=sorted_indices)
 
-                        # Dodaj jawną konwersję do float dla wartości
+                        # Add explicit conversion to float for the values
                         monthly_totals = monthly_totals.astype(float)
 
                         logger.info(f"Monthly totals data type: {type(monthly_totals.iloc[0])}")
@@ -380,10 +378,10 @@ def generate_excel_report(grouped_df, detailed_df, chart_paths, report_name, cat
 def generate_csv_report(grouped_df, detailed_df, report_name):
     """Generate CSV report files"""
     try:
-        config = Config()  # Już istnieje, ale musisz używać tej instancji
+        config = Config()
 
         # Create directory for the report
-        report_dir = os.path.join(config.REPORT_FOLDER, report_name)  # Użyj instancji
+        report_dir = os.path.join(config.REPORT_FOLDER, report_name)
         os.makedirs(report_dir, exist_ok=True)
 
         # Save summary data
@@ -404,7 +402,7 @@ def generate_csv_report(grouped_df, detailed_df, report_name):
             f.write(f"2. {report_name}_detailed.csv - Detailed expense data with individual transactions\n")
 
         # Create a zip file containing all CSV files
-        zip_path = os.path.join(config.REPORT_FOLDER, f"{report_name}.zip")  # Użyj instancji
+        zip_path = os.path.join(config.REPORT_FOLDER, f"{report_name}.zip")
         with zipfile.ZipFile(zip_path, 'w') as zip_file:
             zip_file.write(summary_path, os.path.basename(summary_path))
             zip_file.write(detailed_path, os.path.basename(detailed_path))
@@ -528,20 +526,19 @@ def generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, categ
 
             period_text = "All time"
             if 'period_label' in grouped_df.columns and not grouped_df.empty:
-                # Konwersja do formatu sortowanego chronologicznie
+                # Conversion to chronologically sorted format
                 periods = grouped_df['period_label'].tolist()
 
-                # Funkcja pomocnicza do konwersji period_label na wartość sortowaną
+                # Helper function for converting period_label to a sortable value
                 def period_to_sortable(period):
                     if '-' in period:
                         parts = period.split('-')
-                        if len(parts) == 2:  # Format YYYY-WW (rok-tydzień)
+                        if len(parts) == 2:
                             year, week = parts
-                            # Upewnij się, że tydzień ma dwie cyfry dla poprawnego sortowania
                             return f"{year}-{int(week):02d}"
                     return period
 
-                # Sortuj chronologicznie
+                # Sort chronologically
                 sorted_periods = sorted(periods, key=period_to_sortable)
 
                 if sorted_periods:
@@ -708,12 +705,12 @@ def send_report_email(category=None, start_date=None, end_date=None, recipient=N
         dict: Status information including success flag and details
     """
     try:
-        # Inicjalizacja konfiguracji i logowanie rozpoczęcia operacji
+        # Initialize configuration and log the start of the operation
         config = Config()
         logger.info(
             f"Starting report generation: category={category}, period={start_date or 'all time'} to {end_date or 'present'}, format={format_type}")
 
-        # Walidacja wejścia
+        # Input validation
         if format_type not in ['excel', 'pdf', 'csv']:
             logger.warning(f"Invalid format type '{format_type}' - defaulting to excel")
             format_type = 'excel'
@@ -737,18 +734,17 @@ def send_report_email(category=None, start_date=None, end_date=None, recipient=N
                 'error': str(report_error)
             }
 
-        # Ustalenie odbiorcy z failsafe
+        # Determine recipient with failsafe
         recipient = recipient or config.DEFAULT_EMAIL_RECIPIENT
         if not recipient:
             logger.error("No recipient specified and no default recipient configured")
             return {'success': False, 'stage': 'preparation', 'error': 'No recipient specified'}
 
-        # Przygotowanie e-maila z odpowiednią obsługą błędów
+        # Prepare email with proper error handling
         try:
-            # Użycie funkcji z module email_service do przygotowania i wysłania e-maila
+            # Using a function from the email_service module to prepare and send the email
             from app.services.email_service import send_email
 
-            # Przygotowanie treści e-maila
             subject = f"Expense Report: {category or 'All Categories'}"
             body = f"""
             <html>
@@ -761,12 +757,12 @@ def send_report_email(category=None, start_date=None, end_date=None, recipient=N
             </html>
             """
 
-            # Weryfikacja czy plik istnieje przed próbą odczytu
+            # Verifying if the file exists before attempting to read
             if not os.path.exists(report_file):
                 logger.error(f"Report file does not exist: {report_file}")
                 return {'success': False, 'stage': 'attachment', 'error': 'Report file not found'}
 
-            # Odczyt pliku z obsługą błędów
+            # Reading the file with error handling
             try:
                 with open(report_file, 'rb') as f:
                     file_content = f.read()
@@ -774,7 +770,7 @@ def send_report_email(category=None, start_date=None, end_date=None, recipient=N
                 logger.error(f"Could not read report file: {str(file_error)}", exc_info=True)
                 return {'success': False, 'stage': 'file_reading', 'error': str(file_error)}
 
-            # Wysłanie e-maila z wykorzystaniem modułu email_service z obsługą błędów SMTP
+            # Sending the email using the email_service module with SMTP error handling
             email_result = send_email(
                 recipient=recipient,
                 subject=subject,
@@ -783,7 +779,7 @@ def send_report_email(category=None, start_date=None, end_date=None, recipient=N
             )
 
             if not email_result:
-                # Spróbuj alternatywne metody wysyłki - implementacja strategii alternatywnych
+                # Try alternative sending methods - implementation of alternative strategies
                 logger.warning("Primary email sending method failed, trying alternative method")
                 email_result = _send_email_alternative(recipient, subject, body, report_file)
 
@@ -805,23 +801,23 @@ def send_report_email(category=None, start_date=None, end_date=None, recipient=N
 
 def _send_email_alternative(recipient, subject, body, attachment_path):
     """
-    Alternatywna metoda wysyłania e-maila - używana gdy główna metoda zawiedzie.
-    Może używać innego portu SMTP, innego serwera lub innej metody uwierzytelnienia.
+    Alternative method for sending an email – used when the main method fails.
+    May use a different SMTP port, server, or authentication method.
 
     Returns:
-        bool: True jeśli udało się wysłać e-mail, False w przeciwnym wypadku
+    bool: True if the email was sent successfully, False otherwise
     """
     try:
         config = Config()
 
-        # Przygotowanie wiadomości
+        # Preparing the message
         msg = MIMEMultipart()
         msg['Subject'] = subject
         msg['From'] = config.EMAIL_SENDER
         msg['To'] = recipient
         msg.attach(MIMEText(body, 'html'))
 
-        # Dołącz załącznik
+        # Attach attachment
         with open(attachment_path, 'rb') as file:
             attachment = MIMEApplication(file.read())
             attachment.add_header(
@@ -831,7 +827,7 @@ def _send_email_alternative(recipient, subject, body, attachment_path):
             )
             msg.attach(attachment)
 
-        # Alternatywna metoda - próba połączenia przez SSL zamiast TLS
+        # Alternative method – attempt connection via SSL instead of TLS
         try:
             with smtplib.SMTP_SSL(config.SMTP_SERVER, 465, timeout=10) as server:
                 server.login(config.EMAIL_USER, config.EMAIL_PASSWORD)
@@ -841,7 +837,7 @@ def _send_email_alternative(recipient, subject, body, attachment_path):
         except Exception as ssl_error:
             logger.warning(f"SSL method failed: {str(ssl_error)}")
 
-            # Spróbuj inny serwer jako ostateczność
+            # Try a different server as a last resort
             backup_server = config.BACKUP_SMTP_SERVER if hasattr(config, 'BACKUP_SMTP_SERVER') else None
             if backup_server:
                 try:
@@ -882,7 +878,7 @@ class DBContextManager:
         # Currently DBManager doesn't need explicit cleanup
         pass
 
-# Funkcja get_db_connection bez żadnych klas - zwraca normalny DBManager
+# Function get_db_connection without any classes – returns a regular DBManager
 def get_db_connection(config):
     return DBManager(
         host=config.DB_HOST,

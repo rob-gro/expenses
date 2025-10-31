@@ -1,3 +1,11 @@
+// Automatically detect base path from current location
+// Extract base path from current URL (e.g., /expenses or empty for root)
+const pathParts = window.location.pathname.split('/').filter(p => p);
+const basePath = pathParts.length > 0 && pathParts[0] === 'expenses' ? '/expenses' : '';
+const API_BASE_URL = window.location.hostname === 'localhost'
+    ? 'http://localhost:5000'
+    : window.location.origin + basePath;
+
 // Get expense ID and suggested category from URL
 const urlParams = new URL(window.location.href).pathname.split('/');
 const expenseId = urlParams[urlParams.length - 2];
@@ -6,7 +14,7 @@ const suggestedCategory = urlParams[urlParams.length - 1];
 // Function to load expense details
 async function loadExpenseDetails() {
     try {
-        const response = await fetch(`/api/get-expense-details/${expenseId}`);
+        const response = await fetch(`${API_BASE_URL}/api/get-expense-details/${expenseId}`);
         const data = await response.json();
 
         if (data.error) {
@@ -56,7 +64,7 @@ async function loadExpenseDetails() {
 // Function to confirm category
 async function confirmCategory(category) {
     try {
-        const response = await fetch('/api/confirm-category', {
+        const response = await fetch(`${API_BASE_URL}/api/confirm-category`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -75,7 +83,7 @@ async function confirmCategory(category) {
 
             // Redirect after 3 seconds
             setTimeout(() => {
-                window.location.href = '/';
+                window.location.href = API_BASE_URL === 'http://localhost:5000' ? '/' : '/expenses/';
             }, 3000);
         } else {
             document.getElementById('errorMessage').textContent = data.error || 'An error occurred while confirming the category.';

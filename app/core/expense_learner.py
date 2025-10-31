@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 class ExpenseLearner:
     """Learn from past expenses to predict categories for new ones"""
-
     def __init__(self, db_manager, model_path='models/expense_classifier.pkl'):
         self.db_manager = db_manager
         self.model_path = model_path
@@ -52,45 +51,45 @@ class ExpenseLearner:
     def train_model(self):
         """Train model on historical expense data and save metrics"""
         try:
-            # Najpierw oceniamy model przed treningiem
+            # Evaluate the model before training
             pre_metrics = None
             if self.model:
                 pre_metrics = self.evaluate_model()
 
-            # Pobierz dane historyczne z bazy
+            # Fetch historical data from the database
             expenses = self.db_manager.get_all_expenses_for_training()
 
-            if not expenses or len(expenses) < 10:  # Minimalny próg do szkolenia
+            if not expenses or len(expenses) < 10:  # Minimum threshold for training
                 logger.warning("Not enough data to train model (minimum 10 expenses required)")
                 return False
 
-            # Konwertuj do DataFrame
+            # Convert to DataFrame
             df = pd.DataFrame(expenses)
 
-            # Sprawdź liczbę próbek na kategorię
+            # Check the number of samples per category
             category_counts = df['category'].value_counts()
             valid_categories = category_counts[category_counts >= self.min_samples_per_category].index.tolist()
 
-            if len(valid_categories) < 2:  # Potrzebujemy przynajmniej 2 kategorie
+            if len(valid_categories) < 2:
                 logger.warning(f"Not enough categories with sufficient samples (min {self.min_samples_per_category})")
                 return False
 
-            # Filtruj tylko kategorie z wystarczającą liczbą próbek
+            # Filter only categories with a sufficient number of samples
             df = df[df['category'].isin(valid_categories)]
 
-            # Połącz transkrypcję i opis sprzedawcy dla lepszych cech
+            # Combine transcript and vendor description for better features
             df['features'] = df['transcription'] + ' ' + df['vendor'].fillna('')
 
-            # Utwórz pipeline modelu
+            # Create the model pipeline
             self.model = Pipeline([
                 ('tfidf', TfidfVectorizer(ngram_range=(1, 2))),
                 ('clf', MultinomialNB())
             ])
 
-            # Trenuj model
+            # Model training
             self.model.fit(df['features'], df['category'])
 
-            # Po treningu oceniamy model ponownie
+            # Re-evaluation after training
             post_metrics = self.evaluate_model()
             if post_metrics:
                 notes = ""
@@ -100,7 +99,6 @@ class ExpenseLearner:
 
                 self.save_metrics(post_metrics, "full", notes)
 
-            # Zapisz model
             self.save_model()
 
             logger.info(f"Successfully trained model on {len(df)} expenses across {len(valid_categories)} categories")
@@ -112,28 +110,27 @@ class ExpenseLearner:
 
     def incremental_train(self, expense_id, confirmed_category):
         """
-        Przyrostowo trenuj model na podstawie pojedynczego potwierdzonego wydatku i zapisz metryki.
+        Incrementally train the model based on a single confirmed expense and save the metrics.
 
         Args:
-            expense_id (int): ID wydatku, którego kategorię potwierdzono
-            confirmed_category (str): Potwierdzona kategoria wydatku
+            expense_id (int): ID of the expense whose category has been confirmed
+            confirmed_category (str): Confirmed expense category
 
         Returns:
-            bool: True jeśli uczenie się powiodło, False w przeciwnym wypadku
+            bool: True if training was successful, False otherwise
         """
         try:
-            # Najpierw oceniamy model przed treningiem przyrostowym
+            # Model evaluation before incremental training
             pre_metrics = None
             if self.model:
                 pre_metrics = self.evaluate_model()
 
-            # Pobierz dane wydatku
+            # Fetching expense data
             expense = self.db_manager.get_expense(expense_id)
             if not expense:
                 logger.warning(f"Cannot incrementally train - expense ID {expense_id} not found")
                 return False
 
-            # Jeśli model nie istnieje, najpierw musimy go stworzyć
             if not self.model:
                 logger.info("No existing model for incremental training, attempting to create one")
                 success = self.train_model()
@@ -141,30 +138,28 @@ class ExpenseLearner:
                     logger.warning("Failed to create initial model for incremental training")
                     return False
 
-            # Przygotuj dane do uczenia
+            # Preparing data for training
             features = expense['transcription'] + ' ' + (expense['vendor'] or '')
             category = confirmed_category
 
-            # Sprawdź, czy mamy wystarczającą ilość danych do uczenia przyrostowego
+            # Checking if there is sufficient data for incremental training
             if not features or not category:
                 logger.warning("Insufficient data for incremental training")
                 return False
 
-            # Aktualizuj model - najpierw przekształć dane za pomocą tfidf
             X_new = self.model.named_steps['tfidf'].transform([features])
             y_new = [category]
 
-            # Sprawdź czy kategoria jest w zbiorze klas, jeśli nie, rozszerz klasy
+            # Checking if the category is in the set of classes; if not, the classes should be extended
             classes = list(self.model.named_steps['clf'].classes_)
             if category not in classes:
                 classes.append(category)
                 logger.info(f"Adding new category to model classes: {category}")
 
-            # Aktualizuj klasyfikator przyrostowo
-            # MultinomialNB obsługuje uczenie przyrostowe przez partial_fit
+            # Incremental update of the classifier
             self.model.named_steps['clf'].partial_fit(X_new, y_new, classes=classes)
 
-            # Oceń model po treningu przyrostowym
+            # Model evaluation after incremental training
             post_metrics = self.evaluate_model()
             if post_metrics:
                 notes = f"Incremental training for expense ID {expense_id}"
@@ -174,7 +169,7 @@ class ExpenseLearner:
 
                 self.save_metrics(post_metrics, "incremental", notes)
 
-            # Zapisz zaktualizowany model
+            # Saving the updated model
             self.save_model()
 
             logger.info(f"Successfully updated model incrementally with expense ID {expense_id}")
@@ -187,20 +182,20 @@ class ExpenseLearner:
     def evaluate_model(self):
         """Evaluate model using cross-validation"""
         try:
-            # Pobierz dane historyczne
+            # Fetching historical data
             expenses = self.db_manager.get_all_expenses_for_training()
             if not expenses or len(expenses) < 10:
                 return None
 
             df = pd.DataFrame(expenses)
 
-            # Przygotuj cechy
+            # Preparing features
             category_counts = df['category'].value_counts()
             valid_categories = category_counts[category_counts >= self.min_samples_per_category].index.tolist()
             df = df[df['category'].isin(valid_categories)]
             df['features'] = df['transcription'] + ' ' + df['vendor'].fillna('')
 
-            # Przeprowadź walidację krzyżową
+            # Performing cross-validation
             from sklearn.model_selection import cross_val_score, StratifiedKFold
             pipeline = Pipeline([
                 ('tfidf', TfidfVectorizer(ngram_range=(1, 2))),
@@ -213,20 +208,19 @@ class ExpenseLearner:
             cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
             cv_scores = cross_val_score(pipeline, X, y, cv=cv, scoring='accuracy')
 
-            # Utwórz macierz pomyłek
+            # Creating the confusion matrix
             from sklearn.model_selection import cross_val_predict
             from sklearn.metrics import confusion_matrix
             y_pred = cross_val_predict(pipeline, X, y, cv=cv)
             cm = confusion_matrix(y, y_pred, labels=valid_categories)
 
-            # Znajdź najważniejsze cechy (nie da się bezpośrednio z CV)
             pipeline.fit(X, y)
             feature_names = pipeline.named_steps['tfidf'].get_feature_names_out()
             feature_importance = pipeline.named_steps['clf'].feature_log_prob_
 
             top_features = {}
             for i, category in enumerate(pipeline.named_steps['clf'].classes_):
-                indices = np.argsort(feature_importance[i])[-10:]  # 10 najważniejszych
+                indices = np.argsort(feature_importance[i])[-10:]
                 top_features[category] = [feature_names[idx] for idx in indices]
 
             return {
@@ -281,18 +275,18 @@ class ExpenseLearner:
             return None
 
         try:
-            # Połącz cechy
+            # Combining features
             features = transcription + ' ' + (vendor or '')
 
-            # Przewiduj kategorię
+            # Predicting category
             predicted_category = self.model.predict([features])[0]
 
-            # Opcjonalnie możemy też pobrać prawdopodobieństwa dla wszystkich kategorii
+            # Optionally, probabilities for all categories can also be retrieved
             probabilities = self.model.predict_proba([features])[0]
             confidence = max(probabilities)
 
-            # Zwróć przewidywanie tylko jeśli pewność jest wystarczająca
-            if confidence > 0.6:  # Próg pewności
+            # Return prediction only if confidence is sufficient
+            if confidence > 0.6:  # Confidence threshold
                 return predicted_category
             return None
 
@@ -307,20 +301,19 @@ class ExpenseLearner:
             return None, 0.0
 
         try:
-            # Połącz cechy
+            # Merge features
             features = transcription + ' ' + (vendor or '')
 
-            # Przewiduj kategorię
+            # Predict category
             predicted_category = self.model.predict([features])[0]
 
-            # Pobierz prawdopodobieństwa dla wszystkich kategorii
+            # Fetch probabilities for all categories
             probabilities = self.model.predict_proba([features])[0]
             confidence = max(probabilities)
 
-            # Zwróć przewidywanie i poziom pewności
+            # Return prediction and confidence level
             return predicted_category, confidence
 
         except Exception as e:
             logger.error(f"Error predicting category with confidence: {str(e)}")
             return None, 0.0
-

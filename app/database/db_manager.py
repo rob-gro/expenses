@@ -19,16 +19,13 @@ class DBManager:
         self.database = database
         self._ensure_database_setup()
 
-    # Plik db_manager.py - dodaj te metody do klasy DBManager
-
     def __enter__(self):
-        """Implementacja protokołu context manager"""
-        # Zwróć instancję jako zarządzany zasób
+        """Context manager protocol implementation"""
+        # Return the instance as a managed resource
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Obsługa zakończenia bloku kontekstowego"""
-        # W przyszłości można tutaj dodać zamykanie połączeń lub czyszczenie zasobów
+        """Handling the end of the context block"""
         pass
 
     def _get_connection(self):
@@ -115,17 +112,17 @@ class DBManager:
 
     def check_for_duplicate(self, date, amount, vendor=None, category=None, time_threshold_minutes=5):
         """
-        Sprawdza, czy podobny wydatek już istnieje w bazie danych
-        Zwraca True jeśli znaleziono duplikat, False w przeciwnym razie
+        Checks if a similar expense already exists in the database
+        Returns True if a duplicate is found, False otherwise
         """
         try:
             with self._get_connection() as conn:
                 with conn.cursor() as cursor:
-                    # Ustaw przedział czasowy dla sprawdzenia
+                    # Set the time range for the check
                     date_from = date - datetime.timedelta(minutes=time_threshold_minutes)
                     date_to = date + datetime.timedelta(minutes=time_threshold_minutes)
 
-                    # Podstawowe warunki wyszukiwania
+                    # Basic search conditions
                     query = """
                         SELECT id FROM expenses
                         WHERE amount = %s 
@@ -133,7 +130,7 @@ class DBManager:
                     """
                     params = [amount, date_from, date_to]
 
-                    # Dodaj warunki dla kategorii i sprzedawcy, jeśli podano
+                    # Add conditions for category and vendor if provided
                     if vendor:
                         query += " AND vendor = %s"
                         params.append(vendor)
@@ -145,24 +142,24 @@ class DBManager:
                     cursor.execute(query, params)
                     result = cursor.fetchone()
 
-                    # Jeśli znaleziono wynik, to mamy duplikat
+                    # If a result is found, then we have a duplicate
                     return result is not None
 
         except Exception as e:
             logger.error(f"Error checking for duplicate: {str(e)}", exc_info=True)
-            # W przypadku błędu zakładamy, że to nie duplikat
+            # In case of an error, assume it is not a duplicate
             return False
 
     def add_expense(self, date, amount, vendor=None, category=None, description=None,
                     audio_file_path=None, transcription=None, needs_confirmation=False,
                     predicted_category=None, category_confidence=0.0, alternative_categories=None,
-                    notification_callback=None):  # Dodany parametr callback
+                    notification_callback=None):
         """
         Add an expense record to the database
         Returns the ID of the newly created expense record, or 0 if it's a duplicate
         """
         try:
-            # Sprawdź, czy podobny wydatek już istnieje
+            # Check if a similar expense already exists
             is_duplicate = self.check_for_duplicate(
                 date=date,
                 amount=amount,
@@ -173,7 +170,7 @@ class DBManager:
 
             if is_duplicate:
                 logger.warning(f"Duplicate expense detected: {date}, {amount}, {vendor}, {category}")
-                # Zwracamy 0 jako sygnał, że był to duplikat
+                # Return 0 as a signal that it was a duplicate
                 return 0
 
             with self._get_connection() as conn:
@@ -187,7 +184,7 @@ class DBManager:
                         cat_result = cursor.fetchone()
 
                         if not cat_result:
-                            # Create new category if doesn't exist
+                            # Create new category if it doesn't exist
                             cursor.execute(
                                 "INSERT INTO categories (name) VALUES (%s)",
                                 (category,)
@@ -211,9 +208,9 @@ class DBManager:
                     # Get the ID of the last inserted row
                     expense_id = cursor.lastrowid
 
-                    # Jeśli wydatek wymaga potwierdzenia kategorii
+                    # If the expense requires category confirmation
                     if needs_confirmation:
-                        # Zapisz do tabeli oczekujących kategoryzacji
+                        # Save to the pending categorization table
                         alt_categories_json = json.dumps(alternative_categories or [])
 
                         cursor.execute("""
@@ -227,11 +224,11 @@ class DBManager:
                             alt_categories_json
                         ))
 
-                        # Jeśli przekazano callback i wydatek został utworzony
+                        # If a callback was provided and the expense was created
                         if notification_callback and expense_id:
-                            # Pobierz kompletne dane wydatku
+                            # Fetch complete expense data
                             expense = self.get_expense(expense_id)
-                            # Wywołaj callback z odpowiednimi argumentami
+                            # Call the callback with the appropriate arguments
                             notification_callback(
                                 expense=expense,
                                 current_category=category,
@@ -503,7 +500,7 @@ class DBManager:
         try:
             with self._get_connection() as conn:
                 with conn.cursor() as cursor:
-                    # Check if exists (case insensitive)
+                    # Check if exists (case-insensitive)
                     cursor.execute(
                         "SELECT id, name FROM categories WHERE LOWER(name) = LOWER(%s)",
                         (name,)

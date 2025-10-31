@@ -7,7 +7,6 @@ from app.services.email_service import send_email, send_confirmation_email
 
 logger = logging.getLogger(__name__)
 
-
 def process_audio_file(file_path, db_manager, email=None):
     """Process audio file, extract expense information and save to database"""
     try:
@@ -73,4 +72,3 @@ def process_audio_file(file_path, db_manager, email=None):
     except Exception as e:
         logger.error(f"Error processing audio: {str(e)}", exc_info=True)
         return {"error": f"Failed to process audio: {str(e)}"}
-

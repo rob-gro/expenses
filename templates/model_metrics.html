@@ -10,20 +10,45 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <div class="container mt-4">
-        <nav aria-label="breadcrumb">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="/">Home</a></li>
-                <li class="breadcrumb-item active" aria-current="page">Model Metrics</li>
-            </ol>
-        </nav>
+    <div class="container">
+        <h1 class="text-center mb-4">Expense Tracker</h1>
 
-        <h1 class="mb-4">Model Training Metrics</h1>
+        <div class="row">
+            <div class="col-md-12">
+                <ul class="nav nav-tabs" id="myTab" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <a href="/" class="nav-link">Record Expense</a>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <a href="/#view" class="nav-link">View Expenses</a>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <a href="/#report" class="nav-link">Reports</a>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <a href="/model-metrics" class="nav-link active">Model Metrics</a>
+                    </li>
+                </ul>
 
-        <div class="card">
+                <div class="p-3 bg-white border border-top-0 rounded-bottom">
+                    <h2 class="mb-4">Model Training Metrics</h2>
+
+                    <!-- Training Progress Indicator (hidden by default) -->
+                    <div id="trainingProgress" class="card mb-4 d-none">
+                        <div class="card-body">
+                            <h5>Training in progress...</h5>
+                            <div class="progress mb-2">
+                                <div id="trainingProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                                     role="progressbar" style="width: 0%">0%</div>
+                            </div>
+                            <p id="trainingStatus" class="text-muted mb-0">Initializing...</p>
+                        </div>
+                    </div>
+
+                    <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5>Model Performance</h5>
-                <button type="button" id="trainModelButton" class="btn btn-warning" onclick="fetch('/api/train-expense-model', {method: 'POST'}).then(r => r.json()).then(d => {alert(d.success ? 'Training successful!' : 'Error: ' + d.error); if(d.success) location.reload();}).catch(e => alert('Error: ' + e))">
+                <button type="button" id="trainModelButton" class="btn btn-warning">
                     Train Model
                 </button>
             </div>
@@ -62,6 +87,8 @@
                             </table>
                         </div>
                     </div>
+                </div>
+            </div>
                 </div>
             </div>
         </div>

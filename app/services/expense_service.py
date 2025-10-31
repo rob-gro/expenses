@@ -1,6 +1,3 @@
-"""
-ExpenseService - Service layer for expense processing business logic
-"""
 import os
 import uuid
 import datetime
@@ -8,7 +5,6 @@ import logging
 from typing import Dict, List, Optional
 from werkzeug.utils import secure_filename
 
-from app.core.vector_expense_learner import QdrantExpenseLearner
 from app.services.transcription import transcribe_audio
 from app.nlp.expense_extractor import extract_expenses_with_ai
 from app.services.category_service import detect_category_command
@@ -24,7 +20,7 @@ class ExpenseService:
     def __init__(self, db_manager: DBManager, upload_folder: str):
         self.db_manager = db_manager
         self.upload_folder = upload_folder
-        self.vector_learner = QdrantExpenseLearner(db_manager)
+        # Note: Learners are created on-demand in methods to avoid initialization crashes
 
     def process_audio_expense(self, file_object, email: Optional[str] = None) -> Dict:
         """
@@ -78,15 +74,6 @@ class ExpenseService:
             return {"success": False, "error": f"Failed to process audio: {str(e)}"}
 
     def process_manual_expense(self, expense_data: Dict) -> Dict:
-        """
-        Process manually entered expense data
-
-        Args:
-            expense_data: Dictionary containing expense information
-
-        Returns:
-            Dict with success status and expense ID
-        """
         try:
             # Validate required fields
             if not expense_data.get('date') or not expense_data.get('amount'):
@@ -210,10 +197,18 @@ class ExpenseService:
             use_vector_model = os.getenv("USE_VECTOR_MODEL", "False").lower() == "true"
 
             if use_vector_model:
-                from app.core.vector_expense_learner import QdrantExpenseLearner
-                learner = QdrantExpenseLearner(self.db_manager)
-                success = learner.train_model()
-                message = "Vector model trained successfully"
+                # Try vector model first
+                try:
+                    from app.core.vector_expense_learner import QdrantExpenseLearner
+                    learner = QdrantExpenseLearner(self.db_manager)
+                    success = learner.train_model()
+                    message = "Vector model trained successfully"
+                except ImportError as e:
+                    logger.warning(f"Vector model not available: {e}. Falling back to traditional model.")
+                    from app.core.expense_learner import ExpenseLearner
+                    learner = ExpenseLearner(self.db_manager)
+                    success = learner.train_model()
+                    message = "Traditional model trained successfully (vector model unavailable)"
             else:
                 from app.core.expense_learner import ExpenseLearner
                 learner = ExpenseLearner(self.db_manager)

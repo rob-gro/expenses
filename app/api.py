@@ -61,18 +61,22 @@ def register_api_routes(app):
     def generate_report_api():
         """Generate expense report based on voice command or parameters"""
         try:
-            email = request.form.get('email', app.config['DEFAULT_EMAIL_RECIPIENT'])
-
             if 'file' in request.files:
-                # Voice command
+                # Voice command - email from form data
+                email = request.form.get('email', '').strip()
+                if not email:
+                    email = app.config['DEFAULT_EMAIL_RECIPIENT']
                 file = request.files['file']
                 if file.filename == '':
                     return jsonify({"error": "No selected file"}), 400
 
                 result = report_service.generate_report_from_voice(file, email)
             else:
-                # JSON parameters
+                # JSON parameters - email from JSON
                 report_params = request.json
+                email = report_params.get('email', '').strip()
+                if not email:
+                    email = app.config['DEFAULT_EMAIL_RECIPIENT']
                 result = report_service.generate_report_from_params(report_params, email)
 
             status_code = 200 if result.get('success') else 400

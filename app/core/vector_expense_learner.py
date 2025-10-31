@@ -3,39 +3,53 @@ import uuid
 import os
 import numpy as np
 from sklearn import metrics
-
 from tqdm import tqdm
 from sklearn.model_selection import KFold
 from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
-from qdrant_client.models import VectorParams, PointStruct
-from sentence_transformers import SentenceTransformer
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+
+# Conditional imports for heavy modules
+try:
+    if not os.environ.get('DISABLE_HEAVY_MODULES'):
+        from qdrant_client import QdrantClient
+        from qdrant_client.models import Distance, VectorParams, PointStruct
+        from sentence_transformers import SentenceTransformer
+        QDRANT_AVAILABLE = True
+    else:
+        QDRANT_AVAILABLE = False
+        QdrantClient = None
+        SentenceTransformer = None
+except ImportError:
+    QDRANT_AVAILABLE = False
+    QdrantClient = None
+    SentenceTransformer = None
 
 from app.core import logger, ExpenseLearner
-from tqdm import tqdm
 
 
 class QdrantExpenseLearner:
     """Expense classifier using vector embeddings and Qdrant"""
 
     def __init__(self, db_manager, collection_name="expenses"):
+        if not QDRANT_AVAILABLE:
+            logger.warning("Qdrant and SentenceTransformers not available - vector learning disabled")
+            raise ImportError("qdrant_client or sentence_transformers not installed")
+
         self.db_manager = db_manager
-        # Załaduj model embeddings
+        # Load embeddings model
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
         self.vector_size = self.embedding_model.get_sentence_embedding_dimension()
         self.min_samples_per_category = 5
 
-        # Połącz z Qdrant
+        # Connect to Qdrant
         self.client = QdrantClient(
             url=os.getenv("QDRANT_URL"),
             api_key=os.getenv("QDRANT_API_KEY")
         )
         self.collection_name = collection_name
 
-        # Sprawdź czy kolekcja istnieje, jeśli nie - utwórz
+        # Check if collection exists, if not - create it
         collections = self.client.get_collections().collections
         collection_names = [c.name for c in collections]
 
@@ -46,16 +60,16 @@ class QdrantExpenseLearner:
             )
 
     def _get_text_embedding(self, text):
-        """Konwertuj tekst na wektor"""
+        """Convert text to vector"""
         return self.embedding_model.encode(text)
 
     def _prepare_expense_text(self, expense):
-        """Przygotuj tekst wydatku do wektoryzacji"""
+        """Prepare expense text for vectorization"""
         text = f"{expense.get('transcription', '')} {expense.get('vendor', '')} {expense.get('description', '')}"
         return text.strip()
 
     def train_model(self):
-        """Trenuj model wektorowy na podstawie danych historycznych"""
+        """Train vector model based on historical data"""
         try:
             expenses = self.db_manager.get_all_expenses_for_training()
 
@@ -63,13 +77,13 @@ class QdrantExpenseLearner:
                 logger.warning("Not enough data to train model (minimum 10 expenses required)")
                 return False
 
-            # Przygotuj punkty do załadowania do Qdrant
+            # Prepare points to load into Qdrant
             points = []
 
-            # Tworzy DataFrame dla walidacji krzyżowej
+            # Create DataFrame for cross validation
             df = pd.DataFrame(expenses)
 
-            # Sprawdź liczbę próbek na kategorię
+            # Check number of samples per category
             category_counts = df['category'].value_counts()
             valid_categories = category_counts[category_counts >= self.min_samples_per_category].index.tolist()
 
@@ -77,10 +91,10 @@ class QdrantExpenseLearner:
                 logger.warning(f"Not enough categories with sufficient samples (min {self.min_samples_per_category})")
                 return False
 
-            # Filtruj tylko kategorie z wystarczającą liczbą próbek
+            # Filter only categories with sufficient number of samples
             df = df[df['category'].isin(valid_categories)]
 
-            # Ocena dokładności przez walidację krzyżową
+            # Evaluate accuracy through cross validation
             kf = KFold(n_splits=5, shuffle=True, random_state=42)
             accuracies = []
 
@@ -88,7 +102,7 @@ class QdrantExpenseLearner:
                 train_df = df.iloc[train_idx]
                 test_df = df.iloc[test_idx]
 
-                # Trenuj na zbiorze treningowym (dodaj do tymczasowej kolekcji)
+                # Train on the training set (add to temporary collection)
                 temp_collection = f"temp_{uuid.uuid4().hex[:8]}"
                 try:
                     self.client.create_collection(
@@ -96,7 +110,7 @@ class QdrantExpenseLearner:
                         vectors_config=VectorParams(size=self.vector_size, distance=Distance.COSINE)
                     )
 
-                    # Dodaj dane treningowe
+                    # Add training data
                     train_points = []
                     for _, expense in train_df.iterrows():
                         text = self._prepare_expense_text(expense)
@@ -110,7 +124,7 @@ class QdrantExpenseLearner:
                     if train_points:
                         self.client.upsert(collection_name=temp_collection, points=train_points)
 
-                    # Testuj na zbiorze testowym
+                    # Test on the test set
                     correct = 0
                     for _, expense in test_df.iterrows():
                         text = self._prepare_expense_text(expense)
@@ -123,7 +137,7 @@ class QdrantExpenseLearner:
                         )
 
                         if results:
-                            # Głosowanie ważone
+                            # Weighted voting
                             categories = {}
                             for res in results:
                                 cat = res.payload['category']
@@ -139,19 +153,19 @@ class QdrantExpenseLearner:
                     accuracies.append(accuracy)
 
                 finally:
-                    # Usuń tymczasową kolekcję
+                    # Remove temporary collection
                     try:
                         self.client.delete_collection(collection_name=temp_collection)
                     except:
                         pass
 
-            # Oblicz średnią dokładność
+            # Calculate average accuracy
             mean_accuracy = sum(accuracies) / len(accuracies) if accuracies else 0
 
-            # Loguj obliczoną dokładność
+            # Log calculated accuracy
             logger.info(f"Vector model metrics calculated: accuracy={mean_accuracy:.4f}")
 
-            # Teraz upsert wszystkich punktów do głównej kolekcji
+            # Now upsert all points to main collection
             for idx, expense in enumerate(expenses):
                 if expense['category'] in valid_categories:
                     text = self._prepare_expense_text(expense)
@@ -168,25 +182,25 @@ class QdrantExpenseLearner:
                         }
                     ))
 
-            # Upsert punktów do kolekcji
+            # Upsert points to collection
             if points:
                 self.client.upsert(
                     collection_name=self.collection_name,
                     points=points
                 )
 
-            # Przygotuj i zapisz metryki
+            # Prepare and save metrics
             metrics = {
                 'accuracy': mean_accuracy,
                 'samples_count': len(df),
                 'categories_count': len(valid_categories),
-                'confusion_matrix': [],  # Puste dla wektorów
+                'confusion_matrix': [],  # Empty for vectors
                 'confusion_labels': valid_categories,
                 'top_features': {},
                 'cv_scores': accuracies
             }
 
-            # Zapisz metryki
+            # Save metrics
             logger.info("Saving metrics to database...")
             dummy_learner = ExpenseLearner(self.db_manager)
             result = dummy_learner.save_metrics(metrics, "vector", "Vector model training")
@@ -201,36 +215,36 @@ class QdrantExpenseLearner:
             return False
 
     def predict_category(self, transcription, vendor=None, description=None):
-        """Przewiduj kategorię wydatku na podstawie podobieństwa wektorowego"""
-        # Przygotuj tekst i wektor zapytania
+        """Predict expense category based on vector similarity"""
+        # Prepare the text and query vector
         query_text = f"{transcription} {vendor or ''} {description or ''}"
         query_vector = self._get_text_embedding(query_text)
 
-        # Wyszukaj podobne wydatki
+        # Search for similar expenses
         search_results = self.client.search(
             collection_name=self.collection_name,
             query_vector=query_vector,
-            limit=5  # Znajdź 5 najbardziej podobnych wydatków
+            limit=5  # Find 5 most similar expenses
         )
 
         if not search_results:
             return None
 
-        # Głosowanie ważone - każdy wynik ma wagę proporcjonalną do podobieństwa
+        # Weighted voting - each result has weight proportional to similarity
         category_scores = {}
         for result in search_results:
             category = result.payload['category']
-            similarity = result.score  # Podobieństwo kosinusowe
+            similarity = result.score  # Cosine similarity
 
             category_scores[category] = category_scores.get(category, 0) + similarity
 
-        # Zwróć kategorię z najwyższym wynikiem
+        # Return category with the highest score
         if category_scores:
             return max(category_scores.items(), key=lambda x: x[1])[0]
         return None
 
     def predict_category_with_confidence(self, transcription, vendor=None, description=None):
-        """Przewiduj kategorię z poziomem pewności"""
+        """Predict category with confidence level"""
         query_text = f"{transcription} {vendor or ''} {description or ''}"
         query_vector = self._get_text_embedding(query_text)
 
@@ -243,7 +257,7 @@ class QdrantExpenseLearner:
         if not search_results:
             return None, 0.0
 
-        # Oblicz wyniki dla kategorii
+        # Calculate scores for categories
         category_scores = {}
         for result in search_results:
             category = result.payload['category']
@@ -251,13 +265,13 @@ class QdrantExpenseLearner:
 
             category_scores[category] = category_scores.get(category, 0) + similarity
 
-        # Normalizuj wyniki do sumy 1.0
+        # Normalize results to sum 1.0
         total_score = sum(category_scores.values())
         if total_score > 0:
             for category in category_scores:
                 category_scores[category] /= total_score
 
-        # Znajdź najlepszą kategorię i jej pewność
+        # Find the best category and its confidence
         if category_scores:
             best_category = max(category_scores.items(), key=lambda x: x[1])
             return best_category[0], best_category[1]
@@ -265,17 +279,17 @@ class QdrantExpenseLearner:
         return None, 0.0
 
     def incremental_train(self, expense_id, confirmed_category):
-        """Przyrostowe uczenie modelu - dodaj nowy punkt lub zaktualizuj istniejący"""
+        """Incremental model training - add new point or update existing one"""
         expense = self.db_manager.get_expense(expense_id)
         if not expense:
             logger.warning(f"Cannot incrementally train - expense ID {expense_id} not found")
             return False
 
-        # Przygotuj tekst i wektor
+        # Prepare text and vector
         text = self._prepare_expense_text(expense)
         vector = self._get_text_embedding(text)
 
-        # Upsert pojedynczego punktu
+        # Upsert a single record
         self.client.upsert(
             collection_name=self.collection_name,
             points=[PointStruct(

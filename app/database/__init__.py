@@ -3,19 +3,18 @@ import logging
 
 from app.database.db_manager import DBManager
 
-# Lista publicznych komponentów eksportowanych przez ten pakiet
+# List of public components exported by this package
 __all__ = ['DBManager']
 
-# Inicjalizacja loggera
 logger = logging.getLogger(__name__)
 
 def _ensure_database_directories():
     """
-    Sprawdza i tworzy niezbędne katalogi dla bazy danych.
-    Używane tylko wewnętrznie przy inicjalizacji pakietu.
+    Checks and creates necessary directories for the database.
+    Used internally during package initialization only.
     """
     try:
-        # Katalog na pliki bazy (jeśli używany jest SQLite)
+        # Directory for database files (if SQLite is used)
         db_dir = os.path.join(os.getcwd(), 'data')
         if not os.path.exists(db_dir):
             os.makedirs(db_dir, exist_ok=True)
@@ -23,8 +22,7 @@ def _ensure_database_directories():
     except Exception as e:
         logger.warning(f"Failed to create database directories: {e}")
 
-# Uruchom inicjalizację podczas ładowania pakietu
+# Run initialization when the package is loaded
 _ensure_database_directories()
 
-# Eksportuj wersję pakietu
 __version__ = '1.0.0'

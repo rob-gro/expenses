@@ -1,10 +1,17 @@
-import discord
-from discord.ext import commands
 import os
 import tempfile
-import aiohttp
 import datetime
 import logging
+
+# Conditional discord import for AlwaysData
+if not os.environ.get('DISABLE_DISCORD'):
+    import discord
+    from discord.ext import commands
+    import aiohttp
+else:
+    discord = None
+    commands = None
+    aiohttp = None
 
 from app.services import category_service
 from app.config import Config
@@ -16,60 +23,65 @@ from app.services.email_service import try_generate_report_from_text
 from concurrent.futures import ThreadPoolExecutor
 
 # Bot configuration
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+if discord and commands:
+    intents = discord.Intents.default()
+    intents.message_content = True
+    bot = commands.Bot(command_prefix='!', intents=intents)
+else:
+    bot = None
+    intents = None
 
 # Get logger instance
 logger = logging.getLogger(__name__)
 email_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="email_worker")
 sent_confirmations = set()
 
-# Zbiory dla deduplikacji
+# Sets for deduplication
 processed_messages = set()
 processed_audio = set()
 
 
-@bot.event
-async def on_ready():
-    print(f'Bot logged in as {bot.user}')
+if bot:
+    @bot.event
+    async def on_ready():
+        print(f'Bot logged in as {bot.user}')
 
 
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
-
-    # Deduplikacja z uwzględnieniem zawartości
-    message_key = f"{message.id}_{message.content}"
-    if message_key in processed_messages:
-        logger.info(f"Skipping duplicate message: {message.id}")
-        return
-
-    processed_messages.add(message_key)
-
-    # Czyść cache co 100 wiadomości
-    if len(processed_messages) > 100:
-        processed_messages.clear()
-        processed_messages.add(message_key)
-        
-    # Czyść cache confirmations co 50 elementów
-    if len(sent_confirmations) > 50:
-        sent_confirmations.clear()
-
-    for attachment in message.attachments:
-        if any(attachment.filename.lower().endswith(ext) for ext in ['.mp3', '.wav', '.ogg', '.m4a']):
-            await process_discord_audio(message, attachment)
+    @bot.event
+    async def on_message(message):
+        if message.author.bot:
             return
 
-    await bot.process_commands(message)
+        # Deduplication with content consideration
+        message_key = f"{message.id}_{message.content}"
+        if message_key in processed_messages:
+            logger.info(f"Skipping duplicate message: {message.id}")
+            return
+
+        processed_messages.add(message_key)
+
+        # Clear cache every 100 messages
+        if len(processed_messages) > 100:
+            processed_messages.clear()
+            processed_messages.add(message_key)
+
+        # Clear confirmation cache every 50 items
+        if len(sent_confirmations) > 50:
+            sent_confirmations.clear()
+
+        for attachment in message.attachments:
+            if any(attachment.filename.lower().endswith(ext) for ext in ['.mp3', '.wav', '.ogg', '.m4a']):
+                await process_discord_audio(message, attachment)
+                return
+
+        await bot.process_commands(message)
 
 
 async def process_discord_audio(message, attachment):
-    # Specjalny znacznik dla każdego audio
+    # Special tag for each audio
     audio_key = f"{message.id}_{attachment.filename}_{attachment.size}"
 
-    # Sprawdź czy już przetworzono to audio
+    # Check if this audio has already been processed
     if audio_key in processed_audio:
         logger.warning(f"DUPLICATE AUDIO DETECTED: Skipping {attachment.filename} for message {message.id}")
         return
@@ -122,19 +134,19 @@ async def process_discord_audio(message, attachment):
                 return
 
             # If not a category command, check if it's a report request
-            # Dodaj unikalny identyfikator dla tego żądania raportu
+            # Add a unique identifier for this report request
             request_id = f"{message.id}_{transcription}"
 
-            # Sprawdź czy już wysłano potwierdzenie dla tego żądania
+            # Check if a confirmation has already been sent for this request
             if request_id in sent_confirmations:
                 logger.warning(f"Duplicate report confirmation prevented for message {message.id}")
                 return
 
-            # Jeśli jest to żądanie raportu
+            # If this is a report request
             if "report" in transcription.lower() or "raport" in transcription.lower():
                 report_generated = try_generate_report_from_text(transcription)
                 if report_generated:
-                    sent_confirmations.add(request_id)  # Oznacz jako potwierdzone
+                    sent_confirmations.add(request_id)
                     await message.channel.send("📧 Report has been sent to your email.")
                     return
 
@@ -160,13 +172,13 @@ async def process_discord_audio(message, attachment):
                 if expense_id:
                     expense_ids.append(expense_id)
 
-            # Utwórz unikalny identyfikator dla tej odpowiedzi
+            # Create a unique identifier for this response
             response_id = f"{message.id}_{len(expenses)}_{hash(transcription)}"
             
             logger.info(f"Checking response_id: {response_id}")
             logger.info(f"Current sent_confirmations size: {len(sent_confirmations)}")
             
-            # Sprawdź czy już wysłano tę odpowiedź
+            # Check if this response has already been sent
             if response_id in sent_confirmations:
                 logger.warning(f"Duplicate expense response prevented for message {message.id} - response_id: {response_id}")
                 return
@@ -184,7 +196,7 @@ async def process_discord_audio(message, attachment):
 
                 response += f"- {date_str}: {expense.get('vendor', 'Unknown store')} - £{expense.get('amount', 0)} ({expense.get('category', 'Other category')})\n"
 
-            # Ostatnie zabezpieczenie przed Discord API
+            # Final safeguard against the Discord API
             send_key = f"send_{message.id}_{hash(response)}"
             if send_key in sent_confirmations:
                 logger.warning(f"Discord send already attempted for message {message.id}")
@@ -195,7 +207,7 @@ async def process_discord_audio(message, attachment):
             await message.channel.send(response)
             logger.info(f"Discord response sent successfully for message {message.id}")
 
-            # Wysyłaj email tylko jeśli wydatki zostały rzeczywiście dodane
+            # Send email only if expenses were actually added
             if expense_ids:
                 try:
                     email_id = f"email_{message.id}_{hash(transcription)}"
@@ -223,13 +235,16 @@ async def process_discord_audio(message, attachment):
         await message.channel.send(f"❌ An error occurred: {str(e)}")
 
 
-@bot.command(name='report')
-async def generate_report(ctx, category=None, period="last_month"):
-    await ctx.send(f"Generating report for category '{category or 'all'}' for period '{period}'...")
-    await ctx.send("✅ Report has been generated and sent to your email address.")
+    @bot.command(name='report')
+    async def generate_report(ctx, category=None, period="last_month"):
+        await ctx.send(f"Generating report for category '{category or 'all'}' for period '{period}'...")
+        await ctx.send("✅ Report has been generated and sent to your email address.")
 
 
 def run_discord_bot():
+    if bot is None:
+        logger.warning("Discord bot is disabled - cannot run")
+        return
     bot.run(Config.DISCORD_BOT_TOKEN)
 
 

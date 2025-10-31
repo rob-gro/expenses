@@ -1,6 +1,3 @@
-"""
-Enhanced CategoryService - Service layer for category management
-"""
 import re
 import logging
 from typing import List, Dict, Optional, Tuple
@@ -93,12 +90,7 @@ class CategoryService:
             raise CategoryServiceError(f"Failed to add category: {str(e)}") from e
 
     def get_category_stats(self) -> Dict:
-        """
-        Get comprehensive statistics about category usage
 
-        Returns:
-            Dict with detailed category usage statistics
-        """
         try:
             # Get all expenses efficiently
             expenses, total_count = self.db_manager.get_expenses(page=1, per_page=10000)

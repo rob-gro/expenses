@@ -1,7 +1,12 @@
 import logging
-import spacy
 import os
 import sys
+
+# Conditional spacy import for AlwaysData
+if not os.environ.get('DISABLE_SPACY'):
+    import spacy
+else:
+    spacy = None
 
 from app.nlp.expense_extractor import (
     extract_with_llm,
@@ -20,47 +25,40 @@ from app.nlp.report_parser import (
     category_patterns
 )
 
-"""
-Moduł NLP (Natural Language Processing) zawiera komponenty odpowiedzialne za przetwarzanie
-i analizę tekstu w aplikacji Expense Tracker.
 
-Moduł ten dostarcza funkcjonalności ekstrakcji informacji o wydatkach z tekstu, parsowania
-kategorii wydatków, rozpoznawania zakresów dat oraz interakcji z modelami AI dla
-lepszego zrozumienia danych tekstowych.
-"""
-
-# Eksportowane funkcjonalności
 __all__ = [
-    # Ekstrakcja wydatków
+    # Expense extraction
     'extract_with_llm',
     'enhance_with_llm',
     'enhance_with_openai',
 
-    # Przetwarzanie dat i kategorii
+    # Processing dates and categories
     'parse_relative_date',
     'extract_date_range_from_text',
     'extract_category_from_text',
 
-    # Parsowanie komend raportowych
+    # Parsing report commands
     'parse_report_command',
     'category_patterns'
 ]
 
-# Metadane pakietu
 __version__ = '1.0.0'
 __author__ = 'Expense Tracker Team'
 
-# Inicjalizacja logera
 logger = logging.getLogger(__name__)
 
 
 def _check_spacy_models():
     """
-    Sprawdza dostępność wymaganych modeli spaCy.
+    Checks the availability of required spaCy models.
 
-    Aplikacja wykorzystuje modele językowe dla języka angielskiego i polskiego.
-    Ta funkcja sprawdza czy są one poprawnie zainstalowane.
+    The application uses language models for both English and Polish.
+    This function verifies whether they are correctly installed.
     """
+    if os.environ.get('DISABLE_SPACY') or spacy is None:
+        logger.info("spaCy disabled - skipping model checks")
+        return
+
     try:
         required_models = [
             ('en_core_web_sm', 'English'),
@@ -69,7 +67,7 @@ def _check_spacy_models():
 
         for model_name, language in required_models:
             try:
-                # Próba załadowania modelu
+                # Attempting to load the model
                 spacy.load(model_name)
                 logger.info(f"spaCy {language} model ({model_name}) loaded successfully")
             except OSError:
@@ -83,7 +81,7 @@ def _check_spacy_models():
 
 
 def _check_openai_configuration():
-    """Sprawdza dostępność klucza API OpenAI"""
+    """Checks the availability of the OpenAI API key"""
     from app.config import Config
 
     if not Config.OPENAI_API_KEY:
@@ -94,7 +92,7 @@ def _check_openai_configuration():
     else:
         logger.info("OpenAI API key is configured")
 
-# Uruchamiane przy inicjalizacji pakietu
+# Executed during package initialization
 try:
     logger.info("Initializing NLP module")
     _check_spacy_models()

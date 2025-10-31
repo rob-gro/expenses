@@ -45,7 +45,7 @@ def extract_date_range_from_text(text):
     if uk_tax_match:
         # Extract years from match groups
         groups = uk_tax_match.groups()
-        if groups[0] and groups[1]:  # Polish format
+        if groups[0] and groups[1]:
             start_year, end_year = int(groups[0]), int(groups[1])
         elif groups[2] and groups[3]:  # English format
             start_year, end_year = int(groups[2]), int(groups[3])
@@ -222,7 +222,7 @@ def extract_category_from_text(text, categories):
 
     # Find category mentions in text
     for category in categories:
-        # Search for exact category name (case insensitive)
+        # Search for exact category name (case-insensitive)
         if category.lower() in text_lower:
             return category
 
@@ -244,5 +244,3 @@ def extract_category_from_text(text, categories):
         return None
 
     return None
-
-

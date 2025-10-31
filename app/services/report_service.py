@@ -37,7 +37,7 @@ class ReportService:
         """
         try:
             # Save uploaded file
-            filename = secure_filename(f"{uuid.uuid4()}_{file.filename}")
+            filename = secure_filename(f"{uuid.uuid4()}_{file_object.filename}")
             file_path = os.path.join(self.upload_folder, filename)
             file_object.save(file_path)
 

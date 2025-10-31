@@ -79,7 +79,6 @@ def extract_expenses_with_ai(text: str) -> Optional[List[Dict]]:
         logger.error(f"Error in extract_expenses_with_ai: {str(e)}", exc_info=True)
         return None
 
-
 def _build_system_prompt() -> str:
     """Build enhanced system prompt with Chain of Thought reasoning"""
     return """
@@ -125,7 +124,6 @@ Step 3: Categorize → bread=Groceries, milk=Groceries, Domestos=Household Chemi
 RESPONSE FORMAT: Valid JSON array only. No explanations.
 """
 
-
 def _build_user_prompt(text: str, categories_str: str, date_context: str) -> str:
     """Build user prompt with context"""
     return f"""
@@ -146,14 +144,12 @@ REQUIRED JSON FIELDS:
 Apply Chain of Thought methodology. Each product gets independent analysis.
 """
 
-
 def _build_date_context(relative_date: Optional[datetime.datetime]) -> str:
     """Build date context for the prompt"""
     context = f"Today's date: {datetime.datetime.now().strftime('%Y-%m-%d')}"
     if relative_date:
         context += f"\nRelative date mentioned: {relative_date.strftime('%Y-%m-%d')}"
     return context
-
 
 def _parse_ai_response(response_text: str) -> Optional[List[Dict]]:
     """Parse and validate AI response"""
@@ -186,7 +182,6 @@ def _parse_ai_response(response_text: str) -> Optional[List[Dict]]:
     except json.JSONDecodeError as e:
         logger.error(f"JSON decode error: {e}")
         return None
-
 
 def _post_process_expenses(expenses: List[Dict], relative_date: Optional[datetime.datetime]) -> List[Dict]:
     """Post-process expenses with date normalization"""
@@ -222,7 +217,6 @@ def _post_process_expenses(expenses: List[Dict], relative_date: Optional[datetim
         expense.setdefault('description', '')
 
     return expenses
-
 
 def _validate_categorization(expenses: List[Dict]) -> List[Dict]:
     """
@@ -292,9 +286,7 @@ def _validate_categorization(expenses: List[Dict]) -> List[Dict]:
         if vendor_lower in vendor_corrections:
             logger.info(f"Correcting vendor '{expense.get('vendor')}' to '{vendor_corrections[vendor_lower]}'")
             expense['vendor'] = vendor_corrections[vendor_lower]
-
     return expenses
-
 
 def parse_relative_date(text: str, language: str = 'pl') -> Optional[datetime.datetime]:
     """Parse relative date expressions from text"""
@@ -303,16 +295,16 @@ def parse_relative_date(text: str, language: str = 'pl') -> Optional[datetime.da
 
     # Enhanced day names mapping
     days_pl = {
-        'poniedziałek': 0, 'poniedzialek': 0,
-        'wtorek': 1,
-        'środa': 2, 'sroda': 2, 'środę': 2, 'srodę': 2,
+        'poniedziałek': 1, 'poniedzialek': 1,
+        'wtorek': 2,
+        'środa': 3, 'sroda': 3, 'środę': 3, 'srodę': 3,
         'czwartek': 4,
-        'piątek': 4, 'piatek': 4,
-        'sobota': 5, 'sobotę': 5, 'sobote': 5,
-        'niedziela': 6, 'niedzielę': 6, 'niedziele': 6
+        'piątek': 5, 'piatek': 5,
+        'sobota': 6, 'sobotę': 6, 'sobote': 6,
+        'niedziela': 7, 'niedzielę': 7, 'niedziele': 7
     }
 
-    days_en = {'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3, 'friday': 4, 'saturday': 5, 'sunday': 6}
+    days_en = {'monday': 1, 'tuesday': 2, 'wednesday': 3, 'thursday': 4, 'friday': 5, 'saturday': 6, 'sunday': 7}
 
     # Enhanced patterns
     patterns = [
@@ -430,25 +422,20 @@ def parse_relative_date(text: str, language: str = 'pl') -> Optional[datetime.da
                 return datetime.datetime(year, month, day)
             except ValueError:
                 continue
-
     return None
-
 
 # Legacy function aliases for backward compatibility
 def extract_with_llm(text: str) -> Optional[List[Dict]]:
     """Legacy alias for extract_expenses_with_ai"""
     return extract_expenses_with_ai(text)
 
-
 def enhance_with_llm(text: str, existing_expenses=None) -> Optional[List[Dict]]:
     """Legacy alias for extract_expenses_with_ai"""
     return extract_expenses_with_ai(text)
 
-
 def enhance_with_openai(text: str, existing_expenses=None) -> Optional[List[Dict]]:
     """Legacy alias for extract_expenses_with_ai"""
     return extract_expenses_with_ai(text)
-
 
 def extract_amount_and_currency(text: str) -> Tuple[Optional[float], str]:
     """Extract amount and currency from text (legacy compatibility)"""

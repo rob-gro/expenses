@@ -1,6 +1,10 @@
+// Automatically detect base path from current location
+// Extract base path from current URL (e.g., /expenses or empty for root)
+const pathParts = window.location.pathname.split('/').filter(p => p);
+const basePath = pathParts.length > 0 && pathParts[0] === 'expenses' ? '/expenses' : '';
 const API_BASE_URL = window.location.hostname === 'localhost'
     ? 'http://localhost:5000'
-    : window.location.origin;
+    : window.location.origin + basePath;
 // DOM elements
 const recordButton = document.getElementById('recordButton');
 const stopButton = document.getElementById('stopButton');
@@ -30,40 +34,40 @@ let reportRecordedBlob;
 // Initialize Bootstrap toast
 const toast = new bootstrap.Toast(expenseToast);
 
-// Funkcja do ładowania kategorii z serwera
+// Function to load categories from server
 function loadCategories() {
-    console.log("Rozpoczynam ładowanie kategorii...");
+    console.log("Starting category loading...");
     fetch(`${API_BASE_URL}/api/categories`)
                 .then(response => {
-            console.log("Odpowiedź API:", response);
+            console.log("API Response:", response);
             return response.json();
         })
         .then(data => {
             console.log("Dane kategorii:", data);
             if (data.success && data.categories) {
-                // Pobierz wszystkie elementy select, które zawierają kategorie
+                // Get all select elements that contain categories
                 const categorySelects = [
                     document.getElementById('categoryFilter'),
                     document.getElementById('expenseCategory'),
                     document.getElementById('reportCategory')
                 ];
 
-                // Dla każdego selecta
+                // For each select
                 categorySelects.forEach(select => {
                     if (!select) return;
 
-                    // Zachowaj opcję "All Categories" lub pierwszą opcję
+                    // Keep "All Categories" option or first option
                     const firstOption = select.options[0];
 
-                    // Wyczyść select
+                    // Clear select
                     select.innerHTML = '';
 
-                    // Dodaj z powrotem pierwszą opcję
+                    // Add back first option
                     if (firstOption) {
                         select.appendChild(firstOption);
                     }
 
-                    // Dodaj każdą kategorię jako nową opcję
+                    // Add each category as new option
                     data.categories.forEach(category => {
                         const option = document.createElement('option');
                         option.value = category;
@@ -163,7 +167,7 @@ function initExpenseRecording() {
                     if (data.success) {
                         showNotification('Success', 'Your expense has been processed and saved!', true);
 
-                        // Odśwież kategorie po dodaniu wydatku
+                        // Refresh categories after adding expense
                         loadCategories();
 
                         // Clear the recording
@@ -437,19 +441,14 @@ document.getElementById('reportForm').addEventListener('submit', function(e) {
     const startDate = document.getElementById('reportStartDate').value;
     const endDate = document.getElementById('reportEndDate').value;
     const format = document.getElementById('reportFormat').value;
-    const email = document.getElementById('reportEmail').value;
+    const email = document.getElementById('reportEmail').value.trim();
 
-    // Validate email
-    if (!email) {
-        showNotification('Error', 'Email is required to receive the report.', false);
-        return;
-    }
-
-    // Create request data
+    // Create request data - email will use default if not provided
     const reportData = {
         category: category,
         group_by: groupBy,
-        format: format
+        format: format,
+        email: email
     };
 
     if (startDate) reportData.start_date = startDate;
@@ -518,7 +517,7 @@ document.getElementById('manualExpenseForm').addEventListener('submit', function
         if (data.success) {
             showNotification('Success', 'Your expense has been saved!', true);
 
-            // Odśwież kategorie po dodaniu wydatku
+            // Refresh categories after adding expense
             loadCategories();
 
             // Reset form
@@ -538,46 +537,9 @@ document.getElementById('manualExpenseForm').addEventListener('submit', function
     });
 });
 
-// Funkcja do trenowania modelu
-function trainExpenseModel() {
-    const trainButton = document.getElementById('trainModelButton');
-    if (trainButton) {
-        trainButton.disabled = true;
-        trainButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Training...';
-    }
-
-    fetch(`${API_BASE_URL}/api/train-expense-model`, {
-        method: 'POST'
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showNotification('Success', 'Model trained successfully!', true);
-        } else {
-            showNotification('Error', data.error || 'Failed to train model.', false);
-        }
-    })
-    .catch(error => {
-        showNotification('Error', 'Failed to connect to the server. Please try again.', false);
-        console.error('Error:', error);
-    })
-    .finally(() => {
-        if (trainButton) {
-            trainButton.disabled = false;
-            trainButton.innerHTML = 'Train Model';
-        }
-    });
-}
-
-// Inicjalizacja przy ładowaniu dokumentu
+// Initialization when document loads
 document.addEventListener('DOMContentLoaded', function() {
     loadCategories();
     initExpenseRecording();
     initReportRecording();
-    
-    // Dodaj obsługę przycisku treningowego
-    const trainButton = document.getElementById('trainModelButton');
-    if (trainButton) {
-        trainButton.addEventListener('click', trainExpenseModel);
-    }
 });
