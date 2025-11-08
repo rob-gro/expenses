@@ -54,7 +54,7 @@ grpcio-tools==1.71.1
 portalocker==3.0.1
 huggingface-hub==0.28.1
 tokenizers==0.21.0
-transformers==4.48.1
+transformers==4.53.0
 safetensors==0.5.2
 filelock==3.17.0
 fsspec==2025.1.0
