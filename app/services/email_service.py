@@ -54,7 +54,7 @@ def send_email(recipient, subject, body, attachments=None):
     except Exception as e:
         logger.error(f"Error preparing email: {str(e)}")
         return False
-def send_confirmation_email(expenses):
+def send_confirmation_email(expenses, transcription=None):
     """Send confirmation email for added expenses"""
     if not expenses:
         return
@@ -69,8 +69,16 @@ def send_confirmation_email(expenses):
     html = """
     <html>
     <body>
-        <h3>Expense Addition Confirmation</h3>
-        <p>The following expenses have been added:</p>
+        <h2>Expense Recording Confirmation</h2>
+        <p>Your audio message has been processed successfully.</p>
+    """
+
+    # Add transcription if provided
+    if transcription:
+        html += f"<p>Transcription: <em>{transcription}</em></p>"
+
+    html += """
+        <h3>Recorded Expenses:</h3>
         <ul>
     """
     for expense in expenses:
@@ -78,7 +86,13 @@ def send_confirmation_email(expenses):
         if isinstance(exp_date, datetime.datetime):
             exp_date = exp_date.strftime("%Y-%m-%d")
 
-        html += f"<li><strong>{exp_date}</strong>: £{expense.get('amount', 0)} – {expense.get('vendor', '')} ({expense.get('category', '')})<br>Description: {expense.get('description', '')}</li>"
+        html += f"<li><strong>{exp_date}</strong>: {expense.get('vendor', 'Unknown')} - £{expense.get('amount', 0)} ({expense.get('category', 'Uncategorized')})"
+
+        # Add description if available
+        if expense.get('description'):
+            html += f"<br>Description: {expense.get('description')}"
+
+        html += "</li>"
 
     html += """
         </ul>

@@ -28,9 +28,21 @@ def create_app(config_object=None):
     Returns:
         Skonfigurowana instancja aplikacji Flask
     """
+    # Importy wymagane do określenia static_url_path
+    from app.config import Config
+
+    # Determine static URL path based on environment
+    # AlwaysData mounts app at /expenses, so static needs to be /expenses/static
+    if os.environ.get('ALWAYSDATA_ENV'):
+        static_url_path = '/expenses/static'
+    else:
+        # Locally - always without prefix
+        static_url_path = '/static'
+
     # Inicjalizacja aplikacji Flask
     app = Flask(__name__,
                 static_folder='../static',
+                static_url_path=static_url_path,
                 template_folder='../templates')
 
     # Włącz CORS
@@ -46,11 +58,11 @@ def create_app(config_object=None):
 
         # Log environment info
         logger.info("=" * 60)
-        logger.info(f"🚀 STARTING APPLICATION")
-        logger.info(f"📌 ENVIRONMENT: {Config.ENVIRONMENT}")
-        logger.info(f"🗄️  DATABASE: {Config.DB_NAME}")
-        logger.info(f"🔗 DATABASE HOST: {Config.DB_HOST}")
-        logger.info(f"🌐 APP URL: {Config.APP_URL}")
+        logger.info(f"STARTING APPLICATION")
+        logger.info(f"ENVIRONMENT: {Config.ENVIRONMENT}")
+        logger.info(f"DATABASE: {Config.DB_NAME}")
+        logger.info(f"DATABASE HOST: {Config.DB_HOST}")
+        logger.info(f"APP URL: {Config.APP_URL}")
         logger.info("=" * 60)
 
     # Upewnij się, że katalogi istnieją
@@ -59,13 +71,24 @@ def create_app(config_object=None):
 
     # Importy wymaganych modułów
     with app.app_context():
-        # Zarejestruj trasy API
-        from app.api import register_api_routes
-        register_api_routes(app)
+        # Import blueprints
+        from app.api import api_bp
+        from app.views import views_bp
 
-        # Zarejestruj trasy widoków
-        from app.views import register_view_routes
-        register_view_routes(app)
+        # Determine URL prefix based on environment
+        # IMPORTANT:
+        # - AlwaysData serves app under /expenses mountpoint (handled by server)
+        # - Localhost ALWAYS runs without prefix (regardless of ENVIRONMENT setting)
+        if os.environ.get('ALWAYSDATA_ENV'):
+            logger.info("AlwaysData production - NO prefix (server handles /expenses mountpoint)")
+            # Register blueprints WITHOUT prefix - AlwaysData mountpoint handles it
+            app.register_blueprint(views_bp)
+            app.register_blueprint(api_bp, url_prefix='/api')
+        else:
+            logger.info(f"Localhost ({app.config.get('ENVIRONMENT', 'unknown')}) - NO prefix")
+            # Register blueprints WITHOUT prefix for localhost
+            app.register_blueprint(views_bp)
+            app.register_blueprint(api_bp, url_prefix='/api')
 
     logger.info(f"Application initialized with config: {config_object.__name__ if config_object else 'Config'}")
 

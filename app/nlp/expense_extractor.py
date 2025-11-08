@@ -2,6 +2,7 @@ import re
 import datetime
 import logging
 import json
+import os
 from typing import List, Dict, Optional, Tuple
 
 from openai import OpenAI
@@ -55,7 +56,7 @@ def extract_expenses_with_ai(text: str) -> Optional[List[Dict]]:
 
         # Call OpenAI API
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=[
                 ChatCompletionSystemMessageParam(role="system", content=system_prompt),
                 ChatCompletionUserMessageParam(role="user", content=user_prompt)
@@ -71,6 +72,9 @@ def extract_expenses_with_ai(text: str) -> Optional[List[Dict]]:
         # Post-process and validate
         expenses = _post_process_expenses(expenses, relative_date)
         expenses = _validate_categorization(expenses)
+
+        # Use ML model for category prediction if available
+        expenses = _apply_ml_categorization(expenses, db)
 
         logger.info(f"Successfully extracted {len(expenses)} expenses")
         return expenses
@@ -287,6 +291,69 @@ def _validate_categorization(expenses: List[Dict]) -> List[Dict]:
             logger.info(f"Correcting vendor '{expense.get('vendor')}' to '{vendor_corrections[vendor_lower]}'")
             expense['vendor'] = vendor_corrections[vendor_lower]
     return expenses
+
+
+def _apply_ml_categorization(expenses: List[Dict], db_manager: DBManager) -> List[Dict]:
+    """
+    Apply ML model (Qdrant vector-based) for category prediction.
+    This overrides OpenAI/rule-based categorization with trained model predictions.
+    """
+    try:
+        use_vector_model = os.getenv("USE_VECTOR_MODEL", "True").lower() == "true"
+
+        if not use_vector_model:
+            logger.info("Vector model disabled (USE_VECTOR_MODEL=False). Using OpenAI categories.")
+            return expenses
+
+        # Try to use Qdrant vector model
+        try:
+            from app.core.vector_expense_learner import QdrantExpenseLearner
+            learner = QdrantExpenseLearner(db_manager)
+            logger.info("Using Qdrant vector model for category prediction")
+
+            for expense in expenses:
+                # Build context for prediction
+                transcription = expense.get('description', '')
+                vendor = expense.get('vendor', '')
+                description = expense.get('description', '')
+
+                # Keep original OpenAI category for comparison
+                openai_category = expense.get('category')
+
+                # Get prediction from Qdrant
+                predicted_category, confidence = learner.predict_category_with_confidence(
+                    transcription=transcription,
+                    vendor=vendor,
+                    description=description
+                )
+
+                if predicted_category and confidence > 0.3:  # Minimum confidence threshold
+                    expense['category'] = predicted_category
+                    expense['category_confidence'] = confidence
+                    expense['ml_prediction'] = predicted_category
+                    expense['openai_category'] = openai_category
+
+                    if predicted_category != openai_category:
+                        logger.info(
+                            f"ML override: '{description}' → {predicted_category} "
+                            f"(confidence: {confidence:.2f}, OpenAI suggested: {openai_category})"
+                        )
+                else:
+                    # Keep OpenAI category if ML confidence is too low
+                    logger.info(
+                        f"ML confidence too low for '{description}' ({confidence:.2f}), "
+                        f"keeping OpenAI category: {openai_category}"
+                    )
+                    expense['category_confidence'] = 0.0
+
+        except (ImportError, Exception) as e:
+            logger.warning(f"Vector model not available: {e}. Using OpenAI categories.")
+
+    except Exception as e:
+        logger.error(f"Error in ML categorization: {str(e)}", exc_info=True)
+
+    return expenses
+
 
 def parse_relative_date(text: str, language: str = 'pl') -> Optional[datetime.datetime]:
     """Parse relative date expressions from text"""

@@ -629,17 +629,14 @@ def generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, categ
 
         elements.append(Spacer(1, 0.5 * inch))
 
-        # Add detailed expenses (limit to 50 for PDF readability)
-        max_records = 50
+        # Add detailed expenses
         elements.append(Paragraph("Detailed Expenses", heading_style))
         elements.append(Spacer(1, 0.1 * inch))
 
         if not detailed_df.empty:
-            # Limit records for PDF
-            if len(detailed_df) > max_records:
-                elements.append(Paragraph(f"Showing first {max_records} of {len(detailed_df)} records",
-                                        styles["Italic"]))
-                detailed_df = detailed_df.head(max_records)
+            # Show total count
+            elements.append(Paragraph(f"Total records: {len(detailed_df)}", styles["Italic"]))
+            elements.append(Spacer(1, 0.1 * inch))
 
             # Convert DataFrame to list of lists for ReportLab table
             data = [detailed_df.columns.tolist()] + detailed_df.values.tolist()

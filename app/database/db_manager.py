@@ -642,3 +642,41 @@ class DBManager:
         except Exception as e:
             logger.error(f"Error retrieving report data: {str(e)}", exc_info=True)
             return {'grouped': [], 'detailed': []}
+
+    def get_latest_model_metrics(self):
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT
+                            id,
+                            accuracy,
+                            samples_count,
+                            categories_count,
+                            confusion_matrix,
+                            training_type,
+                            notes,
+                            created_at
+                        FROM model_metrics
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    """)
+
+                    result = cursor.fetchone()
+                    if result:
+                        # Parse JSON confusion_matrix if it's a string
+                        if result.get('confusion_matrix') and isinstance(result['confusion_matrix'], str):
+                            try:
+                                result['confusion_matrix'] = json.loads(result['confusion_matrix'])
+                            except:
+                                pass
+
+                        # Convert datetime to string for serialization
+                        if result.get('created_at'):
+                            result['created_at'] = result['created_at'].isoformat()
+
+                    return result
+
+        except Exception as e:
+            logger.error(f"Error retrieving latest model metrics: {str(e)}", exc_info=True)
+            return None

@@ -9,17 +9,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
 
-# Conditional imports for heavy modules
+# Import Qdrant - always try to import (no DISABLE_HEAVY_MODULES check)
 try:
-    if not os.environ.get('DISABLE_HEAVY_MODULES'):
-        from qdrant_client import QdrantClient
-        from qdrant_client.models import Distance, VectorParams, PointStruct
-        from sentence_transformers import SentenceTransformer
-        QDRANT_AVAILABLE = True
-    else:
-        QDRANT_AVAILABLE = False
-        QdrantClient = None
-        SentenceTransformer = None
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import Distance, VectorParams, PointStruct
+    from sentence_transformers import SentenceTransformer
+    QDRANT_AVAILABLE = True
 except ImportError:
     QDRANT_AVAILABLE = False
     QdrantClient = None
@@ -45,7 +40,8 @@ class QdrantExpenseLearner:
         # Connect to Qdrant
         self.client = QdrantClient(
             url=os.getenv("QDRANT_URL"),
-            api_key=os.getenv("QDRANT_API_KEY")
+            api_key=os.getenv("QDRANT_API_KEY"),
+            timeout=120
         )
         self.collection_name = collection_name
 
@@ -71,10 +67,15 @@ class QdrantExpenseLearner:
     def train_model(self):
         """Train vector model based on historical data"""
         try:
+            logger.info("=" * 60)
+            logger.info("STARTING VECTOR MODEL TRAINING")
+            logger.info("=" * 60)
+
             expenses = self.db_manager.get_all_expenses_for_training()
+            logger.info(f"Loaded {len(expenses) if expenses else 0} expenses from database")
 
             if not expenses or len(expenses) < 10:
-                logger.warning("Not enough data to train model (minimum 10 expenses required)")
+                logger.warning(f"Not enough data to train model (have {len(expenses) if expenses else 0}, need minimum 10)")
                 return False
 
             # Prepare points to load into Qdrant
@@ -85,20 +86,29 @@ class QdrantExpenseLearner:
 
             # Check number of samples per category
             category_counts = df['category'].value_counts()
+            logger.info(f"Category distribution: {category_counts.to_dict()}")
+
             valid_categories = category_counts[category_counts >= self.min_samples_per_category].index.tolist()
+            logger.info(f"Categories with >={self.min_samples_per_category} samples: {valid_categories}")
+            logger.info(f"Valid categories: {len(valid_categories)}")
 
             if len(valid_categories) < 2:
-                logger.warning(f"Not enough categories with sufficient samples (min {self.min_samples_per_category})")
+                logger.warning(f"Not enough categories with sufficient samples (have {len(valid_categories)}, need minimum 2)")
                 return False
 
             # Filter only categories with sufficient number of samples
             df = df[df['category'].isin(valid_categories)]
+            logger.info(f"Training dataset: {len(df)} expenses across {len(valid_categories)} categories")
 
             # Evaluate accuracy through cross validation
+            logger.info("Starting 5-fold cross-validation...")
             kf = KFold(n_splits=5, shuffle=True, random_state=42)
             accuracies = []
+            fold_num = 0
 
             for train_idx, test_idx in kf.split(df):
+                fold_num += 1
+                logger.info(f"Fold {fold_num}/5: Training on {len(train_idx)} samples, testing on {len(test_idx)} samples")
                 train_df = df.iloc[train_idx]
                 test_df = df.iloc[test_idx]
 
@@ -151,6 +161,7 @@ class QdrantExpenseLearner:
 
                     accuracy = correct / len(test_df) if len(test_df) > 0 else 0
                     accuracies.append(accuracy)
+                    logger.info(f"Fold {fold_num}/5: Accuracy = {accuracy:.4f} ({correct}/{len(test_df)} correct)")
 
                 finally:
                     # Remove temporary collection

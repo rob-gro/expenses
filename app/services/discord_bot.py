@@ -212,7 +212,7 @@ async def process_discord_audio(message, attachment):
                 try:
                     email_id = f"email_{message.id}_{hash(transcription)}"
                     if email_id not in sent_confirmations:
-                        send_confirmation_email(expenses)
+                        send_confirmation_email(expenses, transcription)
                         sent_confirmations.add(email_id)
                         logger.info(f"Confirmation email sent for message {message.id}")
                     else:
@@ -237,9 +237,8 @@ async def process_discord_audio(message, attachment):
 
     @bot.command(name='report')
     async def generate_report(ctx, category=None, period="last_month"):
-        await ctx.send(f"Generating report for category '{category or 'all'}' for period '{period}'...")
+        await ctx.send(f"Generating report for category '{category or 'all'}' for period '{period}'.")
         await ctx.send("✅ Report has been generated and sent to your email address.")
-
 
 def run_discord_bot():
     if bot is None:

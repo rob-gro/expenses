@@ -1,16 +1,26 @@
+(function() {
 // Automatically detect base path from current location
 // Extract base path from current URL (e.g., /expenses or empty for root)
 const pathParts = window.location.pathname.split('/').filter(p => p);
 const basePath = pathParts.length > 0 && pathParts[0] === 'expenses' ? '/expenses' : '';
-const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5000'
-    : window.location.origin + basePath;
+const API_BASE_URL = window.location.origin + basePath;
 
 // Funkcja do ładowania i wyświetlania metryk modelu
 function loadModelMetrics() {
+  console.log("=== loadModelMetrics called ===");
+  console.log("API_BASE_URL:", API_BASE_URL);
+  console.log("Full URL:", `${API_BASE_URL}/api/model-metrics`);
+
   fetch(`${API_BASE_URL}/api/model-metrics`)
-    .then(response => response.json())
+    .then(response => {
+      console.log("Response received:", response.status, response.statusText);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      return response.json();
+    })
     .then(data => {
+      console.log("Data received:", data);
       if (data.success) {
         // Aktualizacja bieżącej dokładności
         document.getElementById('currentAccuracy').textContent =
@@ -145,14 +155,28 @@ function updateProgress(percentage, statusText) {
   }
 }
 
+// Store chart instance globally within IIFE scope
+let chartInstance = null;
+
 // Funkcja do rysowania wykresu dokładności
 function drawAccuracyChart(metrics) {
-  const ctx = document.getElementById('accuracyChart').getContext('2d');
+  const canvas = document.getElementById('accuracyChart');
+  if (!canvas) {
+    console.error('Canvas element not found');
+    return;
+  }
+
+  // Destroy existing chart if it exists
+  if (chartInstance) {
+    chartInstance.destroy();
+  }
+
+  const ctx = canvas.getContext('2d');
 
   // Odwróć dane, aby były chronologicznie
   const sortedMetrics = [...metrics].reverse();
 
-  new Chart(ctx, {
+  chartInstance = new Chart(ctx, {
     type: 'line',
     data: {
       labels: sortedMetrics.map(m => new Date(m.timestamp).toLocaleDateString()),
@@ -195,4 +219,14 @@ document.addEventListener('DOMContentLoaded', function() {
   if (trainButton) {
     trainButton.addEventListener('click', trainExpenseModel);
   }
+
+  // Load metrics when Model Metrics tab is shown
+  const metricsTab = document.getElementById('metrics-tab');
+  if (metricsTab) {
+    metricsTab.addEventListener('shown.bs.tab', function (e) {
+      loadModelMetrics();
+    });
+  }
 });
+
+})(); // End of IIFE

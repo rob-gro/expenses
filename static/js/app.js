@@ -2,9 +2,7 @@
 // Extract base path from current URL (e.g., /expenses or empty for root)
 const pathParts = window.location.pathname.split('/').filter(p => p);
 const basePath = pathParts.length > 0 && pathParts[0] === 'expenses' ? '/expenses' : '';
-const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5000'
-    : window.location.origin + basePath;
+const API_BASE_URL = window.location.origin + basePath;
 // DOM elements
 const recordButton = document.getElementById('recordButton');
 const stopButton = document.getElementById('stopButton');

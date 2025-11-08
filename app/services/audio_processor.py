@@ -29,8 +29,10 @@ def process_audio_file(file_path, db_manager, email=None):
                 transcription=transcription
             )
             expense_ids.append(expense_id)
-            if expenses:
-                send_confirmation_email(expenses)
+
+        # Send confirmation email after all expenses are added
+        if expenses:
+            send_confirmation_email(expenses, transcription)
 
         # Send confirmation email if email provided
         if email:

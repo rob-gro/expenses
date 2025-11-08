@@ -260,7 +260,7 @@ class CategoryService:
 
         # Clean and normalize
         normalized = name.strip()
-        # Capitalize first letter of each word
+        # Capitalize first letter of each wordtak
         normalized = " ".join(word.capitalize() for word in normalized.split())
 
         return normalized
@@ -297,7 +297,7 @@ class CategoryService:
             user_prompt = f"Translate to English: '{category_name}'"
 
             response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o-mini",
                 messages=[
                     ChatCompletionSystemMessageParam(role="system", content=system_prompt),
                     ChatCompletionUserMessageParam(role="user", content=user_prompt)

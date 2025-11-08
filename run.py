@@ -1,20 +1,13 @@
 import os
 import logging
 import threading
-import json
 import schedule
 import time
 import sys
 
-from flask import Flask
-from flask_cors import CORS
-import spacy
-
-from app.api import register_api_routes
-from app.views import register_view_routes
+from app import create_app
 from app.database.db_manager import DBManager
 from app.core.expense_learner import ExpenseLearner
-from app.services.discord_bot import run_discord_bot
 from app.config import Config
 
 # Sprawdź konfigurację
@@ -24,10 +17,8 @@ except Exception as e:
     print(f"Błąd konfiguracji: {e}")
     sys.exit(1)
 
-# Inicjalizacja Flask
-app = Flask(__name__)
-CORS(app)
-app.config.from_object(Config)
+# Inicjalizacja Flask używając factory pattern
+app = create_app()
 
 # Konfiguracja logowania
 logging.basicConfig(
@@ -48,36 +39,112 @@ db_manager = DBManager(
     database=db_name
 )
 
-# Inicjalizacja modeli spaCy
-nlp = spacy.load('en_core_web_sm')
-nlp_pl = spacy.load('pl_core_news_sm')
-
-# Tworzenie katalogów
-os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(config.REPORT_FOLDER, exist_ok=True)
-
-# Rejestracja tras API i widoków
-register_api_routes(app)
-register_view_routes(app)
-
 # Funkcja do planowania treningu modelu
 def schedule_model_training():
     def train_job():
-        logger.info("Running scheduled model training")
-        learner = ExpenseLearner(db_manager)
-        learner.train_model()
+        logger.info("Running scheduled model training - using Qdrant vector model")
 
-    schedule.every().sunday.at("01:00").do(train_job)
+        training_success = False
+
+        try:
+            from app.core.vector_expense_learner import QdrantExpenseLearner
+            learner = QdrantExpenseLearner(db_manager)
+            training_success = learner.train_model()
+            logger.info("Scheduled training completed using Qdrant vector model")
+        except ImportError as e:
+            logger.error(f"CRITICAL: Qdrant libraries not installed: {str(e)}")
+            logger.error("Training aborted - Qdrant is required!")
+            return
+        except Exception as e:
+            logger.error(f"Error during Qdrant training: {str(e)}", exc_info=True)
+            return
+
+        # Send email notification after training
+        if training_success:
+            try:
+                from app.services.email_service import send_email
+
+                # Get latest metrics
+                metrics = db_manager.get_latest_model_metrics()
+
+                if metrics:
+                    # Extract confusion matrix data
+                    confusion_data = metrics.get('confusion_matrix', {})
+                    if isinstance(confusion_data, str):
+                        import json
+                        confusion_data = json.loads(confusion_data)
+
+                    cv_scores = confusion_data.get('cv_scores', [])
+                    cv_scores_str = ', '.join([f"{score:.4f}" for score in cv_scores]) if cv_scores else 'N/A'
+
+                    # Format email body
+                    email_body = f"""
+                    <html>
+                        <body>
+                            <h2>Model Training Completed Successfully</h2>
+                            <p>The scheduled model training has been completed.</p>
+
+                            <h3>Training Results:</h3>
+                            <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">
+                                <tr>
+                                    <td><strong>Training Type:</strong></td>
+                                    <td>{metrics.get('training_type', 'N/A')}</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Accuracy:</strong></td>
+                                    <td>{metrics.get('accuracy', 0):.4f} ({metrics.get('accuracy', 0)*100:.2f}%)</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Samples Count:</strong></td>
+                                    <td>{metrics.get('samples_count', 0)}</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Categories Count:</strong></td>
+                                    <td>{metrics.get('categories_count', 0)}</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Cross-Validation Scores:</strong></td>
+                                    <td>{cv_scores_str}</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Training Date:</strong></td>
+                                    <td>{metrics.get('created_at', 'N/A')}</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Notes:</strong></td>
+                                    <td>{metrics.get('notes', 'N/A')}</td>
+                                </tr>
+                            </table>
+
+                            <p style="margin-top: 20px;">
+                                <small>This is an automated message from your Expense Tracking System.</small>
+                            </p>
+                        </body>
+                    </html>
+                    """
+
+                    # Send email
+                    send_email(
+                        recipient=Config.DEFAULT_EMAIL_RECIPIENT,
+                        subject=f"Model Training Completed - Accuracy: {metrics.get('accuracy', 0)*100:.2f}%",
+                        body=email_body
+                    )
+                    logger.info("Training completion email sent successfully")
+                else:
+                    logger.warning("Could not retrieve metrics to send email notification")
+
+            except Exception as e:
+                logger.error(f"Error sending training completion email: {str(e)}", exc_info=True)
+
+    schedule.every().saturday.at("16:00").do(train_job)
 
     def run_scheduler():
         while True:
             schedule.run_pending()
-            time.sleep(3600)  # Sprawdzaj co godzinę
+            time.sleep(3600)
 
-    # Uruchom w osobnym wątku
     threading.Thread(target=run_scheduler, daemon=True).start()
 
-# Funkcja do uruchomienia bota Discord
 def start_discord_bot():
     """Start Discord bot in a separate thread"""
     if os.environ.get('ALWAYSDATA_ENV'):
@@ -106,7 +173,6 @@ if __name__ == '__main__':
         except Exception as e:
             logger.error(f"Error starting model training scheduler: {str(e)}")
 
-        # Discord bot - wyłączony na AlwaysData
         try:
             start_discord_bot()
             logger.info("Discord bot started")

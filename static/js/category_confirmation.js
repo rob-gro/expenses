@@ -2,9 +2,7 @@
 // Extract base path from current URL (e.g., /expenses or empty for root)
 const pathParts = window.location.pathname.split('/').filter(p => p);
 const basePath = pathParts.length > 0 && pathParts[0] === 'expenses' ? '/expenses' : '';
-const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5000'
-    : window.location.origin + basePath;
+const API_BASE_URL = window.location.origin + basePath;
 
 // Get expense ID and suggested category from URL
 const urlParams = new URL(window.location.href).pathname.split('/');
@@ -83,7 +81,7 @@ async function confirmCategory(category) {
 
             // Redirect after 3 seconds
             setTimeout(() => {
-                window.location.href = API_BASE_URL === 'http://localhost:5000' ? '/' : '/expenses/';
+                window.location.href = basePath ? basePath + '/' : '/';
             }, 3000);
         } else {
             document.getElementById('errorMessage').textContent = data.error || 'An error occurred while confirming the category.';

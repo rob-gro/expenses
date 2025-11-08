@@ -144,9 +144,15 @@ class ExpenseService:
             self.db_manager.update_pending_categorization(expense_id, status='confirmed')
 
             # Train model incrementally
-            from app.core.expense_learner import ExpenseLearner
-            learner = ExpenseLearner(self.db_manager)
-            learner.incremental_train(expense_id, confirmed_category)
+            try:
+                from app.core.vector_expense_learner import QdrantExpenseLearner
+                learner = QdrantExpenseLearner(self.db_manager)
+                learner.incremental_train(expense_id, confirmed_category)
+                logger.info(f"Qdrant incremental training completed for expense {expense_id}")
+            except ImportError as e:
+                logger.error(f"Qdrant libraries not installed: {str(e)}")
+            except Exception as e:
+                logger.error(f"Error with Qdrant incremental training: {str(e)}", exc_info=True)
 
             return {"success": True, "message": "Category confirmed successfully"}
 
@@ -155,15 +161,6 @@ class ExpenseService:
             return {"success": False, "error": f"Failed to confirm category: {str(e)}"}
 
     def get_expense_details(self, expense_id: int) -> Optional[Dict]:
-        """
-        Get expense details with pending categorization info
-
-        Args:
-            expense_id: ID of expense to retrieve
-
-        Returns:
-            Dict with expense details or None if not found
-        """
         try:
             expense = self.db_manager.get_expense(expense_id)
             if not expense:
@@ -186,43 +183,24 @@ class ExpenseService:
             return None
 
     def train_expense_model(self) -> Dict:
-        """
-        Train expense categorization model
-
-        Returns:
-            Dict with training result
-        """
+        """Train expense model - ALWAYS using Qdrant (no fallback)"""
         try:
-            # Wybierz model klasyfikacji - tradycyjny lub wektorowy
-            use_vector_model = os.getenv("USE_VECTOR_MODEL", "False").lower() == "true"
-
-            if use_vector_model:
-                # Try vector model first
-                try:
-                    from app.core.vector_expense_learner import QdrantExpenseLearner
-                    learner = QdrantExpenseLearner(self.db_manager)
-                    success = learner.train_model()
-                    message = "Vector model trained successfully"
-                except ImportError as e:
-                    logger.warning(f"Vector model not available: {e}. Falling back to traditional model.")
-                    from app.core.expense_learner import ExpenseLearner
-                    learner = ExpenseLearner(self.db_manager)
-                    success = learner.train_model()
-                    message = "Traditional model trained successfully (vector model unavailable)"
-            else:
-                from app.core.expense_learner import ExpenseLearner
-                learner = ExpenseLearner(self.db_manager)
-                success = learner.train_model()
-                message = "Traditional model trained successfully"
+            from app.core.vector_expense_learner import QdrantExpenseLearner
+            learner = QdrantExpenseLearner(self.db_manager)
+            success = learner.train_model()
 
             if success:
-                return {"success": True, "message": message}
+                return {"success": True, "message": "Qdrant vector model trained successfully"}
             else:
                 return {"success": False, "message": "Not enough data to train model"}
 
+        except ImportError as e:
+            error_msg = f"Qdrant libraries not installed: {str(e)}"
+            logger.error(error_msg)
+            return {"success": False, "error": error_msg}
         except Exception as e:
-            logger.error(f"Error training model: {str(e)}", exc_info=True)
-            return {"success": False, "error": f"Failed to train model: {str(e)}"}
+            logger.error(f"Error training Qdrant model: {str(e)}", exc_info=True)
+            return {"success": False, "error": f"Failed to train Qdrant model: {str(e)}"}
 
     def _process_category_command(self, category_name: str, transcription: str, email: Optional[str]) -> Dict:
         """Process category addition command"""

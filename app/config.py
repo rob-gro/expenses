@@ -5,34 +5,33 @@ load_dotenv()
 
 
 class Config:
-    def __init__(self):
-        load_dotenv()
-        self.ENVIRONMENT = os.environ.get('ENVIRONMENT', 'prod')
+    ENVIRONMENT = os.environ.get('ENVIRONMENT', 'prod')
 
-        print(f"DEBUG: ENVIRONMENT = '{self.ENVIRONMENT}'")
-
-        if self.ENVIRONMENT in ['prod', 'production']:
-            self.DB_NAME = 'robgro_expenses'
-            self.UPLOAD_FOLDER = '/home/robgro/www/expenses/uploads'
-            self.REPORT_FOLDER = '/home/robgro/www/expenses/reports'
-            self.APP_URL = 'https://robgro.dev/expenses'
-            print(f"DEBUG: Using production DB: {self.DB_NAME}")
-        else:
-            self.DB_NAME = 'robgro_test_expenses'
-            self.UPLOAD_FOLDER = 'uploads'
-            self.REPORT_FOLDER = 'reports'
-            self.APP_URL = 'http://localhost:5000'
-            print(f"DEBUG: Using test DB: {self.DB_NAME}")
-
-    # Flask settings (class variables)
-    DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+    # Flask settings
+    DEBUG = os.environ.get('DEBUG', 'False') == 'True'
     PORT = int(os.environ.get('PORT', 5000))
     SECRET_KEY = os.environ.get('SECRET_KEY')
 
+    # Application root for subdirectory mounting
+    APPLICATION_ROOT = '/expenses' if os.environ.get('ALWAYSDATA_ENV') else None
+
     # Database settings
-    DB_HOST = os.environ.get('DB_HOST')
-    DB_USER = os.environ.get('DB_USER')
+    DB_HOST = os.environ.get('DB_HOST', 'mysql-robgro.alwaysdata.net')
+    DB_USER = os.environ.get('DB_USER', 'robgro')
     DB_PASSWORD = os.environ.get('DB_PASSWORD')
+
+    # Database name based on environment
+    DB_NAME = 'robgro_expenses' if ENVIRONMENT in ['prod', 'production'] else 'robgro_test_expenses'
+
+    # Paths based on environment - POPRAWIONE ŚCIEŻKI BEZ /
+    if ENVIRONMENT in ['prod', 'production']:
+        UPLOAD_FOLDER = '/home/robgro/expenses/uploads'
+        REPORT_FOLDER = '/home/robgro/expenses/reports'
+        APP_URL = 'https://robgro.dev/expenses'
+    else:
+        UPLOAD_FOLDER = 'uploads'
+        REPORT_FOLDER = 'reports'
+        APP_URL = 'http://localhost:5000'
 
     # File upload settings
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024
@@ -51,49 +50,44 @@ class Config:
 
     # Predefined expense categories
     DEFAULT_CATEGORIES = [
-        'Fuel',  # Paliwo
+        'Fuel',
         'Cosmetics',
-        'Groceries',  # Żywność
-        'Utilities',  # Media
-        'Rent',  # Czynsz
-        'Entertainment',  # Rozrywka
-        'Transportation',  # Transport
-        'Healthcare',  # Opieka zdrowotna
-        'Clothing',  # Ubrania
-        'Education',  # Edukacja
-        'Other',  # Inne
-        'Office supplies',  # mat. biurowe
-        "Alcohol"  # Alk
+        'Groceries',
+        'Utilities',
+        'Rent',
+        'Entertainment',
+        'Transportation',
+        'Healthcare',
+        'Clothing',
+        'Education',
+        'Other',
+        'Office supplies',
+        'Alcohol'
     ]
 
     @classmethod
     def get_db_config(cls):
-        config = cls()
-        if config.ENVIRONMENT in ['prod', 'production']:
+        if cls.ENVIRONMENT in ['prod', 'production']:
             return {
                 'host': 'mysql-robgro.alwaysdata.net',
                 'user': 'robgro',
                 'password': cls.DB_PASSWORD,
-                'database': config.DB_NAME
+                'database': cls.DB_NAME
             }
         else:
             return {
                 'host': cls.DB_HOST,
                 'user': cls.DB_USER,
                 'password': cls.DB_PASSWORD,
-                'database': config.DB_NAME
+                'database': cls.DB_NAME
             }
 
     @classmethod
     def validate_config(cls):
         required_vars = [
-            'DB_HOST',
-            'DB_USER',
             'DB_PASSWORD',
             'OPENAI_API_KEY',
-            'SECRET_KEY',
-            'EMAIL_PASSWORD',
-            'DISCORD_BOT_TOKEN'
+            'SECRET_KEY'
         ]
         missing_vars = [var for var in required_vars if not getattr(cls, var)]
         if missing_vars:
