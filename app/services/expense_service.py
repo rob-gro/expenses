@@ -10,6 +10,7 @@ from app.nlp.expense_extractor import extract_expenses_with_ai
 from app.services.category_service import detect_category_command
 from app.services.email_service import send_email, send_category_confirmation_notification
 from app.database.db_manager import DBManager
+from app.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +191,80 @@ class ExpenseService:
             success = learner.train_model()
 
             if success:
+                # Send email notification after successful training
+                try:
+                    # Get latest metrics
+                    metrics = self.db_manager.get_latest_model_metrics()
+
+                    if metrics:
+                        # Extract confusion matrix data
+                        confusion_data = metrics.get('confusion_matrix', {})
+                        if isinstance(confusion_data, str):
+                            import json
+                            confusion_data = json.loads(confusion_data)
+
+                        cv_scores = confusion_data.get('cv_scores', [])
+                        cv_scores_str = ', '.join([f"{score:.4f}" for score in cv_scores]) if cv_scores else 'N/A'
+
+                        # Format email body
+                        email_body = f"""
+                        <html>
+                            <body>
+                                <h2>Model Training Completed Successfully</h2>
+                                <p>The manual model training has been completed.</p>
+
+                                <h3>Training Results:</h3>
+                                <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">
+                                    <tr>
+                                        <td><strong>Training Type:</strong></td>
+                                        <td>{metrics.get('training_type', 'N/A')}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Accuracy:</strong></td>
+                                        <td>{metrics.get('accuracy', 0):.4f} ({metrics.get('accuracy', 0)*100:.2f}%)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Samples Count:</strong></td>
+                                        <td>{metrics.get('samples_count', 0)}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Categories Count:</strong></td>
+                                        <td>{metrics.get('categories_count', 0)}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Cross-Validation Scores:</strong></td>
+                                        <td>{cv_scores_str}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Training Date:</strong></td>
+                                        <td>{metrics.get('created_at', 'N/A')}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Notes:</strong></td>
+                                        <td>{metrics.get('notes', 'N/A')}</td>
+                                    </tr>
+                                </table>
+
+                                <p style="margin-top: 20px;">
+                                    <small>This is an automated message from your Expense Tracking System.</small>
+                                </p>
+                            </body>
+                        </html>
+                        """
+
+                        # Send email
+                        send_email(
+                            recipient=Config.DEFAULT_EMAIL_RECIPIENT,
+                            subject=f"Model Training Completed - Accuracy: {metrics.get('accuracy', 0)*100:.2f}%",
+                            body=email_body
+                        )
+                        logger.info("Training completion email sent successfully")
+                    else:
+                        logger.warning("Could not retrieve metrics to send email notification")
+
+                except Exception as e:
+                    logger.error(f"Error sending training completion email: {str(e)}", exc_info=True)
+
                 return {"success": True, "message": "Qdrant vector model trained successfully"}
             else:
                 return {"success": False, "message": "Not enough data to train model"}

@@ -656,9 +656,9 @@ class DBManager:
                             confusion_matrix,
                             training_type,
                             notes,
-                            created_at
+                            timestamp
                         FROM model_metrics
-                        ORDER BY created_at DESC
+                        ORDER BY timestamp DESC
                         LIMIT 1
                     """)
 
@@ -671,9 +671,10 @@ class DBManager:
                             except:
                                 pass
 
-                        # Convert datetime to string for serialization
-                        if result.get('created_at'):
-                            result['created_at'] = result['created_at'].isoformat()
+                        # Convert datetime to string for serialization and rename timestamp to created_at
+                        if result.get('timestamp'):
+                            result['created_at'] = result['timestamp'].isoformat()
+                            del result['timestamp']
 
                     return result
 
