@@ -204,46 +204,120 @@ class ExpenseService:
                             confusion_data = json.loads(confusion_data)
 
                         cv_scores = confusion_data.get('cv_scores', [])
-                        cv_scores_str = ', '.join([f"{score:.4f}" for score in cv_scores]) if cv_scores else 'N/A'
+
+                        # Calculate CV statistics
+                        if cv_scores:
+                            cv_min = min(cv_scores) * 100
+                            cv_max = max(cv_scores) * 100
+                            cv_avg = (sum(cv_scores) / len(cv_scores)) * 100
+                            cv_std = (sum((x - cv_avg/100)**2 for x in cv_scores) / len(cv_scores)) ** 0.5 * 100
+
+                            # Format individual scores
+                            cv_scores_formatted = []
+                            for i, score in enumerate(cv_scores, 1):
+                                cv_scores_formatted.append(f"Test {i}: {score:.4f} ({score*100:.2f}%)")
+                            cv_scores_str = '<br/>'.join(cv_scores_formatted)
+
+                            # Interpretation
+                            if cv_std < 5:
+                                stability = "Excellent - very stable performance"
+                            elif cv_std < 10:
+                                stability = "Good - consistent performance"
+                            elif cv_std < 15:
+                                stability = "Fair - moderate variability"
+                            else:
+                                stability = "Poor - high variability, more data needed"
+                        else:
+                            cv_scores_str = 'N/A'
+                            cv_min = cv_max = cv_avg = cv_std = 0
+                            stability = 'N/A'
 
                         # Format email body
                         email_body = f"""
                         <html>
                             <body>
                                 <h2>Model Training Completed Successfully</h2>
-                                <p>The manual model training has been completed.</p>
+                                <p>The model has been trained and validated using your expense data.</p>
 
-                                <h3>Training Results:</h3>
+                                <h3>Overall Performance:</h3>
                                 <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">
                                     <tr>
                                         <td><strong>Training Type:</strong></td>
                                         <td>{metrics.get('training_type', 'N/A')}</td>
                                     </tr>
                                     <tr>
-                                        <td><strong>Accuracy:</strong></td>
+                                        <td><strong>Average Accuracy:</strong></td>
                                         <td>{metrics.get('accuracy', 0):.4f} ({metrics.get('accuracy', 0)*100:.2f}%)</td>
                                     </tr>
                                     <tr>
-                                        <td><strong>Samples Count:</strong></td>
-                                        <td>{metrics.get('samples_count', 0)}</td>
+                                        <td><strong>Training Samples:</strong></td>
+                                        <td>{metrics.get('samples_count', 0)} expenses</td>
                                     </tr>
                                     <tr>
-                                        <td><strong>Categories Count:</strong></td>
-                                        <td>{metrics.get('categories_count', 0)}</td>
-                                    </tr>
-                                    <tr>
-                                        <td><strong>Cross-Validation Scores:</strong></td>
-                                        <td>{cv_scores_str}</td>
+                                        <td><strong>Categories:</strong></td>
+                                        <td>{metrics.get('categories_count', 0)} different categories</td>
                                     </tr>
                                     <tr>
                                         <td><strong>Training Date:</strong></td>
                                         <td>{metrics.get('created_at', 'N/A')}</td>
                                     </tr>
+                                </table>
+
+                                <h3>Cross-Validation Analysis:</h3>
+                                <p style="margin-top: 10px; margin-bottom: 10px;">
+                                    <strong>What is Cross-Validation?</strong><br/>
+                                    The model was tested 5 times on different subsets of your data. Each test uses 80% for training and 20% for validation.
+                                    This helps ensure the model works well on expenses it hasn't seen before.
+                                </p>
+
+                                <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; margin-bottom: 15px;">
                                     <tr>
-                                        <td><strong>Notes:</strong></td>
-                                        <td>{metrics.get('notes', 'N/A')}</td>
+                                        <td><strong>Individual Test Results:</strong></td>
+                                        <td>{cv_scores_str}</td>
+                                    </tr>
+                                    <tr style="background-color: #f0f0f0;">
+                                        <td><strong>Best Performance:</strong></td>
+                                        <td>{cv_max:.2f}%</td>
+                                    </tr>
+                                    <tr style="background-color: #f0f0f0;">
+                                        <td><strong>Worst Performance:</strong></td>
+                                        <td>{cv_min:.2f}%</td>
+                                    </tr>
+                                    <tr style="background-color: #f0f0f0;">
+                                        <td><strong>Average:</strong></td>
+                                        <td>{cv_avg:.2f}%</td>
+                                    </tr>
+                                    <tr style="background-color: #f0f0f0;">
+                                        <td><strong>Variability (Std Dev):</strong></td>
+                                        <td>±{cv_std:.2f}%</td>
+                                    </tr>
+                                    <tr style="background-color: #e3f2fd;">
+                                        <td><strong>Stability Assessment:</strong></td>
+                                        <td><strong>{stability}</strong></td>
                                     </tr>
                                 </table>
+
+                                <h4>What These Numbers Mean:</h4>
+                                <ul style="margin-top: 5px;">
+                                    <li><strong>Average Accuracy ({metrics.get('accuracy', 0)*100:.2f}%):</strong>
+                                        The model correctly predicts categories for about {int(metrics.get('accuracy', 0)*100)} out of 100 expenses.</li>
+                                    <li><strong>Variability (±{cv_std:.2f}%):</strong>
+                                        How much the accuracy changes between tests. Lower is better - means the model is consistent.</li>
+                                    <li><strong>Best vs Worst ({cv_max:.2f}% vs {cv_min:.2f}%):</strong>
+                                        Shows the range of performance. A smaller gap means more reliable predictions.</li>
+                                </ul>
+
+                                <h4>How to Improve the Model:</h4>
+                                <ul style="margin-top: 5px; margin-bottom: 20px;">
+                                    <li>Add more expenses to each category (aim for at least 20-30 per category)</li>
+                                    <li>Correct wrong categories when you see them in "View Expenses" tab</li>
+                                    <li>Use consistent vendor names and descriptions</li>
+                                    <li>Retrain the model periodically as you add more data</li>
+                                </ul>
+
+                                <p style="margin-top: 20px; padding: 10px; background-color: #fff3cd; border-left: 4px solid #ffc107;">
+                                    <strong>Note:</strong> {metrics.get('notes', 'Model training completed successfully.')}
+                                </p>
 
                                 <p style="margin-top: 20px;">
                                     <small>This is an automated message from your Expense Tracking System.</small>
@@ -315,14 +389,13 @@ class ExpenseService:
             # Determine if category confirmation is needed
             needs_confirmation = False
             predicted_category = None
-            category_confidence = 0.0
+            confidence_score = expense.get('confidence_score', None)
             alternative_categories = []
 
             # Logic for confirmation (can be enhanced later)
-            if hasattr(expense, 'category_confidence') and expense.category_confidence < 0.8:
+            if confidence_score is not None and confidence_score < 0.8:
                 needs_confirmation = True
                 predicted_category = expense.get('category')
-                category_confidence = expense.get('category_confidence', 0.0)
                 if hasattr(expense, 'alternative_categories'):
                     alternative_categories = expense.alternative_categories
 
@@ -336,7 +409,7 @@ class ExpenseService:
                 transcription=transcription,
                 needs_confirmation=needs_confirmation,
                 predicted_category=predicted_category,
-                category_confidence=category_confidence,
+                confidence_score=confidence_score,
                 alternative_categories=alternative_categories,
                 notification_callback=send_category_confirmation_notification if needs_confirmation else None
             )

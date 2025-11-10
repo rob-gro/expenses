@@ -65,6 +65,10 @@ def create_app(config_object=None):
         logger.info(f"APP URL: {Config.APP_URL}")
         logger.info("=" * 60)
 
+    # Wyłącz cache dla plików statycznych
+    app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+    app.config['TEMPLATES_AUTO_RELOAD'] = True
+
     # Upewnij się, że katalogi istnieją
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs(app.config['REPORT_FOLDER'], exist_ok=True)

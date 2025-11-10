@@ -158,7 +158,7 @@ def view_expenses():
         per_page = int(request.args.get('per_page', 10))
         category = request.args.get('category')
 
-        expenses, total = db_manager.get_expenses(
+        expenses, total, needs_review_count = db_manager.get_expenses(
             page=page,
             per_page=per_page,
             category=category
