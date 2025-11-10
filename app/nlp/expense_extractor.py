@@ -329,7 +329,7 @@ def _apply_ml_categorization(expenses: List[Dict], db_manager: DBManager) -> Lis
 
                 if predicted_category and confidence > 0.3:  # Minimum confidence threshold
                     expense['category'] = predicted_category
-                    expense['category_confidence'] = confidence
+                    expense['confidence_score'] = confidence
                     expense['ml_prediction'] = predicted_category
                     expense['openai_category'] = openai_category
 
@@ -344,7 +344,7 @@ def _apply_ml_categorization(expenses: List[Dict], db_manager: DBManager) -> Lis
                         f"ML confidence too low for '{description}' ({confidence:.2f}), "
                         f"keeping OpenAI category: {openai_category}"
                     )
-                    expense['category_confidence'] = 0.0
+                    expense['confidence_score'] = 0.0
 
         except (ImportError, Exception) as e:
             logger.warning(f"Vector model not available: {e}. Using OpenAI categories.")

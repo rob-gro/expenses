@@ -152,7 +152,7 @@ class DBManager:
 
     def add_expense(self, date, amount, vendor=None, category=None, description=None,
                     audio_file_path=None, transcription=None, needs_confirmation=False,
-                    predicted_category=None, category_confidence=0.0, alternative_categories=None,
+                    predicted_category=None, confidence_score=None, alternative_categories=None,
                     notification_callback=None):
         """
         Add an expense record to the database
@@ -192,9 +192,9 @@ class DBManager:
 
                     # Insert expense record
                     cursor.execute("""
-                        INSERT INTO expenses 
-                        (date, amount, vendor, category, description, audio_file_path, transcription)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO expenses
+                        (date, amount, vendor, category, description, audio_file_path, transcription, confidence_score)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                         date,
                         amount,
@@ -202,7 +202,8 @@ class DBManager:
                         category or 'Other',
                         description or '',
                         audio_file_path or '',
-                        transcription or ''
+                        transcription or '',
+                        confidence_score
                     ))
 
                     # Get the ID of the last inserted row
@@ -214,13 +215,13 @@ class DBManager:
                         alt_categories_json = json.dumps(alternative_categories or [])
 
                         cursor.execute("""
-                            INSERT INTO pending_categorizations 
+                            INSERT INTO pending_categorizations
                             (expense_id, predicted_category, confidence, alternative_categories)
                             VALUES (%s, %s, %s, %s)
                         """, (
                             expense_id,
                             predicted_category,
-                            category_confidence,
+                            confidence_score,
                             alt_categories_json
                         ))
 
@@ -272,10 +273,10 @@ class DBManager:
             return None
 
     def get_expenses(self, page=1, per_page=10, category=None, start_date=None,
-                     end_date=None, vendor=None):
+                     end_date=None, vendor=None, needs_review=False):
         """
         Get a list of expenses with pagination and filtering
-        Returns a tuple of (expenses_list, total_count)
+        Returns a tuple of (expenses_list, total_count, needs_review_count)
         """
         try:
             with self._get_connection() as conn:
@@ -300,6 +301,9 @@ class DBManager:
                         where_clauses.append("vendor LIKE %s")
                         params.append(f"%{vendor}%")
 
+                    if needs_review:
+                        where_clauses.append("confidence_score < 0.70")
+
                     # Build WHERE clause string
                     where_sql = ""
                     if where_clauses:
@@ -310,14 +314,18 @@ class DBManager:
                     cursor.execute(count_sql, params)
                     total = cursor.fetchone()['total']
 
+                    # Get count of expenses needing review
+                    cursor.execute("SELECT COUNT(*) as count FROM expenses WHERE confidence_score < 0.70")
+                    needs_review_count = cursor.fetchone()['count']
+
                     # Calculate offset for pagination
                     offset = (page - 1) * per_page
 
                     # Get paginated results
                     query_sql = f"""
-                        SELECT 
-                            id, date, amount, vendor, category, 
-                            description, creation_timestamp
+                        SELECT
+                            id, date, amount, vendor, category,
+                            description, creation_timestamp, confidence_score
                         FROM expenses
                         {where_sql}
                         ORDER BY date DESC
@@ -335,11 +343,11 @@ class DBManager:
                         expense['date'] = expense['date'].isoformat()
                         expense['creation_timestamp'] = expense['creation_timestamp'].isoformat()
 
-                    return expenses, total
+                    return expenses, total, needs_review_count
 
         except Exception as e:
             logger.error(f"Error retrieving expenses: {str(e)}", exc_info=True)
-            return [], 0
+            return [], 0, 0
 
     def get_pending_categorization(self, expense_id):
         """Get pending categorization for an expense"""

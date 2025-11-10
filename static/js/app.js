@@ -300,6 +300,7 @@ function loadExpenses(page = 1) {
     const tableBody = document.getElementById('expenseTableBody');
     const pagination = document.getElementById('expensePagination');
     const categoryFilter = document.getElementById('categoryFilter').value;
+    const needsReview = document.getElementById('needsReviewFilter').checked;
 
     // Show loading state
     tableBody.innerHTML = '<tr><td colspan="5" class="text-center">Loading expenses...</td></tr>';
@@ -308,6 +309,9 @@ function loadExpenses(page = 1) {
     let url = `${API_BASE_URL}/api/view-expenses?page=${page}&per_page=10`;
     if (categoryFilter) {
         url += `&category=${encodeURIComponent(categoryFilter)}`;
+    }
+    if (needsReview) {
+        url += `&needs_review=true`;
     }
 
     fetch(url)
@@ -324,11 +328,34 @@ function loadExpenses(page = 1) {
                     const date = new Date(expense.date);
                     const formattedDate = date.toLocaleDateString();
 
+                    // Determine border color based on confidence score
+                    let borderStyle = '';
+                    if (expense.confidence_score !== null && expense.confidence_score !== undefined) {
+                        if (expense.confidence_score >= 0.80) {
+                            borderStyle = 'border-left: 4px solid #28a745;'; // Green
+                        } else if (expense.confidence_score >= 0.60) {
+                            borderStyle = 'border-left: 4px solid #ffc107;'; // Yellow
+                        } else {
+                            borderStyle = 'border-left: 4px solid #dc3545; animation: pulse 2s infinite;'; // Red + pulse
+                        }
+                    }
+
+                    row.setAttribute('style', borderStyle);
+
                     row.innerHTML = `
                         <td>${formattedDate}</td>
                         <td>£${parseFloat(expense.amount).toFixed(2)}</td>
                         <td>${expense.vendor || 'Unknown'}</td>
-                        <td>${expense.category || 'Other'}</td>
+                        <td>
+                            <div class="d-flex align-items-center gap-2">
+                                <select class="form-select form-select-sm category-select" data-expense-id="${expense.id}" data-original-category="${expense.category || 'Other'}" style="max-width: 150px;">
+                                    <option value="${expense.category || 'Other'}" selected>${expense.category || 'Other'}</option>
+                                </select>
+                                <button class="btn btn-sm btn-success btn-save-category" data-expense-id="${expense.id}" style="display: none;" title="Save category">
+                                    💾
+                                </button>
+                            </div>
+                        </td>
                         <td>${expense.description || ''}</td>
                     `;
 
@@ -337,6 +364,18 @@ function loadExpenses(page = 1) {
 
                 // Create pagination
                 generatePagination(pagination, data.page, data.total_pages);
+
+                // Populate category dropdowns after table is created
+                populateCategorySelects();
+
+                // Update badge
+                const badge = document.getElementById('needs-review-badge');
+                if (data.needs_review_count > 0) {
+                    badge.textContent = data.needs_review_count;
+                    badge.style.display = 'inline-block';
+                } else {
+                    badge.style.display = 'none';
+                }
             } else {
                 tableBody.innerHTML = '<tr><td colspan="5" class="text-center">No expenses found</td></tr>';
                 pagination.innerHTML = '';
@@ -346,6 +385,123 @@ function loadExpenses(page = 1) {
             tableBody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error loading expenses</td></tr>';
             console.error('Error:', error);
         });
+}
+
+// Populate all category select dropdowns in expense table
+function populateCategorySelects() {
+    // Fetch categories
+    fetch(`${API_BASE_URL}/api/categories`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.categories) {
+                // Get all category select elements in the table
+                const categorySelects = document.querySelectorAll('.category-select');
+
+                categorySelects.forEach(select => {
+                    const originalCategory = select.getAttribute('data-original-category');
+
+                    // Clear and repopulate
+                    select.innerHTML = '';
+
+                    // Add all categories
+                    data.categories.forEach(category => {
+                        const option = document.createElement('option');
+                        option.value = category;
+                        option.textContent = category;
+
+                        // Select the original category
+                        if (category === originalCategory) {
+                            option.selected = true;
+                        }
+
+                        select.appendChild(option);
+                    });
+                });
+
+                // Add event listeners after populating
+                setupCategoryChangeHandlers();
+            }
+        })
+        .catch(error => {
+            console.error('Error loading categories for expense table:', error);
+        });
+}
+
+// Setup event handlers for category changes
+function setupCategoryChangeHandlers() {
+    // Use event delegation on table body
+    const tableBody = document.getElementById('expenseTableBody');
+
+    // Handle category select change
+    tableBody.addEventListener('change', function(e) {
+        if (e.target.classList.contains('category-select')) {
+            const select = e.target;
+            const expenseId = select.getAttribute('data-expense-id');
+            const originalCategory = select.getAttribute('data-original-category');
+            const newCategory = select.value;
+            const saveButton = tableBody.querySelector(`.btn-save-category[data-expense-id="${expenseId}"]`);
+
+            // Show/hide save button based on whether category changed
+            if (newCategory !== originalCategory) {
+                saveButton.style.display = 'inline-block';
+            } else {
+                saveButton.style.display = 'none';
+            }
+        }
+    });
+
+    // Handle save button click
+    tableBody.addEventListener('click', function(e) {
+        if (e.target.classList.contains('btn-save-category')) {
+            const button = e.target;
+            const expenseId = button.getAttribute('data-expense-id');
+            const select = tableBody.querySelector(`.category-select[data-expense-id="${expenseId}"]`);
+            const newCategory = select.value;
+
+            // Disable button during save
+            button.disabled = true;
+            button.textContent = '⏳';
+
+            // Call API to save category
+            fetch(`${API_BASE_URL}/api/confirm-category`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    expense_id: parseInt(expenseId),
+                    category: newCategory
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification('Success', 'Category updated and model retrained!', true);
+
+                    // Update original category attribute
+                    select.setAttribute('data-original-category', newCategory);
+
+                    // Hide save button
+                    button.style.display = 'none';
+                    button.textContent = '💾';
+                    button.disabled = false;
+
+                    // Refresh categories in case new one was added
+                    loadCategories();
+                } else {
+                    showNotification('Error', data.error || 'Failed to update category.', false);
+                    button.textContent = '💾';
+                    button.disabled = false;
+                }
+            })
+            .catch(error => {
+                showNotification('Error', 'Failed to connect to the server. Please try again.', false);
+                console.error('Error:', error);
+                button.textContent = '💾';
+                button.disabled = false;
+            });
+        }
+    });
 }
 
 // Generate pagination links
@@ -427,6 +583,11 @@ document.getElementById('categoryFilter').addEventListener('change', function() 
 
 // Handle refresh button
 document.getElementById('refreshExpenses').addEventListener('click', function() {
+    loadExpenses();
+});
+
+// Handle needs review filter change
+document.getElementById('needsReviewFilter').addEventListener('change', function() {
     loadExpenses();
 });
 

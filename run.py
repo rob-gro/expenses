@@ -136,7 +136,7 @@ def schedule_model_training():
             except Exception as e:
                 logger.error(f"Error sending training completion email: {str(e)}", exc_info=True)
 
-    schedule.every().saturday.at("16:00").do(train_job)
+    schedule.every().sunday.at("13:00").do(train_job)
 
     def run_scheduler():
         while True:
