@@ -88,53 +88,58 @@ function trainExpenseModel() {
     updateProgress(Math.floor(progress), status);
   }, 800);
 
-  // First, get current metrics count, THEN start training
+  // Variable to store initial metrics count
+  let savedInitialCount = 0;
+
+  // FIRST get current metrics count, THEN start training
   fetch(`${API_BASE_URL}/api/model-metrics`)
     .then(r => r.json())
     .then(initialData => {
-      const initialMetricsCount = initialData.success && initialData.metrics ? initialData.metrics.length : 0;
+      savedInitialCount = initialData.success && initialData.metrics ? initialData.metrics.length : 0;
+      console.log('Initial metrics count:', savedInitialCount);
 
       // NOW start training
       return fetch(`${API_BASE_URL}/api/train-expense-model`, {
         method: 'POST'
-      })
-      .then(response => response.json())
-      .then(data => {
+      });
+    })
+  .then(response => response.json())
+  .then(data => {
     if (data.success) {
-      // Training started in background - keep progress bar going
-      updateProgress(95, 'Training in progress (this may take 3-5 minutes)...');
-
-      // Poll for completion every 5 seconds
+      // Start polling for new metrics (training happens in background)
       let pollCount = 0;
-      const maxPolls = 80; // 80 * 5s = 6.5 minutes max
+      const maxPolls = 60; // 5 minutes max (60 * 5s)
 
       const pollInterval = setInterval(() => {
         pollCount++;
+        console.log(`Polling ${pollCount}/${maxPolls}, checking for metrics...`);
 
         fetch(`${API_BASE_URL}/api/model-metrics`)
           .then(r => r.json())
-          .then(metricsData => {
-            const currentCount = metricsData.success && metricsData.metrics ? metricsData.metrics.length : 0;
+          .then(d => {
+            const currentCount = d.success && d.metrics ? d.metrics.length : 0;
+            console.log(`Current metrics: ${currentCount}, Initial: ${savedInitialCount}`);
 
-            if (currentCount > initialMetricsCount) {
+            if (d.success && d.metrics && currentCount > savedInitialCount) {
               // New training completed!
               clearInterval(progressInterval);
               clearInterval(pollInterval);
               updateProgress(100, 'Training completed successfully!');
+              showNotification('Success', 'Model trained successfully! Check your email for details.', true);
+              loadModelMetrics();
 
               setTimeout(() => {
-                loadModelMetrics();
                 if (progressDiv) progressDiv.classList.add('d-none');
                 if (trainButton) {
                   trainButton.disabled = false;
                   trainButton.innerHTML = 'Train Model';
                 }
-              }, 2000);
+              }, 3000);
             } else if (pollCount >= maxPolls) {
-              // Timeout
+              // Timeout - training took too long
               clearInterval(progressInterval);
               clearInterval(pollInterval);
-              updateProgress(95, 'Training timeout - check email for results');
+              updateProgress(95, 'Training in progress (check email)...');
 
               setTimeout(() => {
                 if (progressDiv) progressDiv.classList.add('d-none');
@@ -144,10 +149,8 @@ function trainExpenseModel() {
                 }
               }, 5000);
             }
-          })
-          .catch(err => console.error('Polling error:', err));
-      }, 5000); // Check every 5 seconds
-
+          });
+      }, 5000); // Poll every 5 seconds
     } else {
       clearInterval(progressInterval);
       updateProgress(0, 'Training failed');
@@ -161,22 +164,21 @@ function trainExpenseModel() {
         }
       }, 3000);
     }
-  });
-    })
-    .catch(error => {
-      clearInterval(progressInterval);
-      updateProgress(0, 'Training failed');
-      showNotification('Error', 'Failed to connect to the server. Please try again.', false);
-      console.error('Error:', error);
+  })
+  .catch(error => {
+    clearInterval(progressInterval);
+    updateProgress(0, 'Training failed');
+    showNotification('Error', 'Failed to connect to the server. Please try again.', false);
+    console.error('Error:', error);
 
-      setTimeout(() => {
-        if (progressDiv) progressDiv.classList.add('d-none');
-        if (trainButton) {
-          trainButton.disabled = false;
-          trainButton.innerHTML = 'Train Model';
-        }
-      }, 3000);
-    });
+    setTimeout(() => {
+      if (progressDiv) progressDiv.classList.add('d-none');
+      if (trainButton) {
+        trainButton.disabled = false;
+        trainButton.innerHTML = 'Train Model';
+      }
+    }, 3000);
+  });
 }
 
 // Helper function to update progress
