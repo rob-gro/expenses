@@ -19,40 +19,25 @@ logger = logging.getLogger(__name__)
 
 
 def create_app(config_object=None):
-    """
-    Fabryka aplikacji - tworzy i konfiguruje aplikację Flask
 
-    Args:
-        config_object: Obiekt konfiguracyjny do załadowania
-
-    Returns:
-        Skonfigurowana instancja aplikacji Flask
-    """
-    # Importy wymagane do określenia static_url_path
     from app.config import Config
 
-    # Determine static URL path based on environment
-    # AlwaysData mounts app at /expenses, so static needs to be /expenses/static
     if os.environ.get('ALWAYSDATA_ENV'):
         static_url_path = '/expenses/static'
     else:
         # Locally - always without prefix
         static_url_path = '/static'
 
-    # Inicjalizacja aplikacji Flask
     app = Flask(__name__,
                 static_folder='../static',
                 static_url_path=static_url_path,
                 template_folder='../templates')
 
-    # Włącz CORS
     CORS(app)
 
-    # Załaduj konfigurację
     if config_object:
         app.config.from_object(config_object)
     else:
-        # Domyślnie, importuj konfigurację z app.config
         from app.config import Config
         app.config.from_object(Config)
 
@@ -65,17 +50,14 @@ def create_app(config_object=None):
         logger.info(f"APP URL: {Config.APP_URL}")
         logger.info("=" * 60)
 
-    # Wyłącz cache dla plików statycznych
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
     app.config['TEMPLATES_AUTO_RELOAD'] = True
 
-    # Upewnij się, że katalogi istnieją
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs(app.config['REPORT_FOLDER'], exist_ok=True)
 
-    # Importy wymaganych modułów
     with app.app_context():
-        # Import blueprints
+
         from app.api import api_bp
         from app.views import views_bp
 
@@ -98,6 +80,4 @@ def create_app(config_object=None):
 
     return app
 
-
-# Funkcjonalności eksportowane na poziom pakietu
 __all__ = ['create_app']

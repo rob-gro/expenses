@@ -10,17 +10,17 @@ from app.database.db_manager import DBManager
 from app.core.expense_learner import ExpenseLearner
 from app.config import Config
 
-# Sprawdź konfigurację
+# Check configuration
 try:
     Config.validate_config()
 except Exception as e:
     print(f"Błąd konfiguracji: {e}")
     sys.exit(1)
 
-# Inicjalizacja Flask używając factory pattern
+# Initialize Flask using the factory pattern
 app = create_app()
 
-# Konfiguracja logowania
+# Logging configuration
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -28,7 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Inicjalizacja bazy danych
+# Database initialization
 config = Config()
 db_name = config.DB_NAME
 
@@ -39,7 +39,7 @@ db_manager = DBManager(
     database=db_name
 )
 
-# Funkcja do planowania treningu modelu
+# Function for scheduling model training
 def schedule_model_training():
     def train_job():
         logger.info("Running scheduled model training - using Qdrant vector model")
@@ -179,6 +179,6 @@ if __name__ == '__main__':
         except Exception as e:
             logger.error(f"Error starting Discord bot: {str(e)}", exc_info=True)
 
-    # Uruchom aplikację Flask
+    # Run the Flask application
     logger.info(f"Starting Flask application on port {app.config['PORT']}")
     app.run(debug=app.config['DEBUG'], host='0.0.0.0', port=app.config['PORT'])
