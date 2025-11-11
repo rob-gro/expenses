@@ -18,8 +18,8 @@ from app.config import Config
 from app.services.transcription import transcribe_audio
 from app.nlp.expense_extractor import extract_with_llm
 from app.database.db_manager import DBManager
-from app.services.email_service import send_confirmation_email, send_category_addition_email
-from app.services.email_service import try_generate_report_from_text
+from app.services.email_service import send_category_addition_email, try_generate_report_from_text
+from app.services.email_templates import EmailTemplates
 from concurrent.futures import ThreadPoolExecutor
 
 # Bot configuration
@@ -158,6 +158,20 @@ async def process_discord_audio(message, attachment):
                 await message.channel.send("❌ Could not recognize expenses in the recording.")
                 return
 
+            # Create a unique identifier for this response to prevent duplicates
+            response_id = f"{message.id}_{len(expenses)}_{hash(transcription)}"
+
+            logger.info(f"Checking response_id: {response_id}")
+
+            # Check if this response has already been sent
+            if response_id in sent_confirmations:
+                logger.warning(f"Duplicate expense response prevented for message {message.id} - response_id: {response_id}")
+                return
+
+            sent_confirmations.add(response_id)
+            logger.info(f"Added response_id to sent_confirmations: {response_id}")
+
+            # Add expenses to database
             expense_ids = []
             for expense in expenses:
                 expense_id = db_manager.add_expense(
@@ -172,20 +186,7 @@ async def process_discord_audio(message, attachment):
                 if expense_id:
                     expense_ids.append(expense_id)
 
-            # Create a unique identifier for this response
-            response_id = f"{message.id}_{len(expenses)}_{hash(transcription)}"
-            
-            logger.info(f"Checking response_id: {response_id}")
-            logger.info(f"Current sent_confirmations size: {len(sent_confirmations)}")
-            
-            # Check if this response has already been sent
-            if response_id in sent_confirmations:
-                logger.warning(f"Duplicate expense response prevented for message {message.id} - response_id: {response_id}")
-                return
-            
-            sent_confirmations.add(response_id)
-            logger.info(f"Added response_id to sent_confirmations: {response_id}")
-            
+            # Build Discord response message
             response = "✅ Recognized expenses:\n"
             for expense in expenses:
                 expense_date = expense.get('date')
@@ -196,29 +197,37 @@ async def process_discord_audio(message, attachment):
 
                 response += f"- {date_str}: {expense.get('vendor', 'Unknown store')} - £{expense.get('amount', 0)} ({expense.get('category', 'Other category')})\n"
 
-            # Final safeguard against the Discord API
-            send_key = f"send_{message.id}_{hash(response)}"
-            if send_key in sent_confirmations:
-                logger.warning(f"Discord send already attempted for message {message.id}")
-                return
-            
-            sent_confirmations.add(send_key)
+            # Send Discord message
             logger.info(f"Sending Discord response for message {message.id}: {len(expenses)} expenses")
             await message.channel.send(response)
             logger.info(f"Discord response sent successfully for message {message.id}")
 
-            # Send email only if expenses were actually added
+            # Send SINGLE email using unified template
             if expense_ids:
                 try:
                     email_id = f"email_{message.id}_{hash(transcription)}"
                     if email_id not in sent_confirmations:
-                        send_confirmation_email(expenses, transcription)
+                        # Use unified email template
+                        subject, html = EmailTemplates.expense_confirmation(
+                            expenses=expenses,
+                            transcription=transcription,
+                            source="discord"
+                        )
+
+                        # Send via email_service.send_email
+                        from app.services.email_service import send_email
+                        send_email(
+                            recipient=Config.DEFAULT_EMAIL_RECIPIENT,
+                            subject=subject,
+                            body=html
+                        )
+
                         sent_confirmations.add(email_id)
-                        logger.info(f"Confirmation email sent for message {message.id}")
+                        logger.info(f"Discord: Confirmation email sent for message {message.id}")
                     else:
                         logger.warning(f"Duplicate email prevented for message {message.id}")
                 except Exception as e:
-                    logger.warning(f"Failed to send confirmation email: {e}")
+                    logger.error(f"Failed to send confirmation email: {e}", exc_info=True)
 
         except Exception as e:
             logger.error(f"Error processing audio in Discord bot: {str(e)}", exc_info=True)

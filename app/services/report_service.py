@@ -10,6 +10,7 @@ from werkzeug.utils import secure_filename
 
 from app.services.transcription import transcribe_audio
 from app.services.email_service import send_email
+from app.services.email_templates import EmailTemplates
 from app.core.report_generator import generate_report
 from app.nlp.report_parser import parse_report_command
 from app.database.db_manager import DBManager
@@ -114,7 +115,7 @@ class ReportService:
 
     def _send_report_email(self, recipient: str, report_file: str, report_type: str, params: Dict):
         """
-        Send report via email
+        Send report via email - uses unified template
 
         Args:
             recipient: Email recipient
@@ -127,27 +128,16 @@ class ReportService:
             with open(report_file, 'rb') as f:
                 file_content = f.read()
 
-            # Prepare email body
-            email_body = f"""
-            <html>
-                <body>
-                    <h2>Expense Report</h2>
-                    <p>Please find attached your requested expense report.</p>
-                    <p>Report parameters:</p>
-                    <ul>
-                        <li>Category: {params.get('category', 'All')}</li>
-                        <li>Period: {params.get('start_date', 'All time')} to {params.get('end_date', 'Present')}</li>
-                        <li>Grouped by: {params.get('group_by', 'Month')}</li>
-                        <li>Format: {params.get('format', 'Excel')}</li>
-                    </ul>
-                </body>
-            </html>
-            """
+            # Use unified email template
+            subject, email_body = EmailTemplates.report_generated(
+                report_type=params.get('format', 'excel'),
+                params=params
+            )
 
             # Send email with attachment
             send_email(
                 recipient=recipient,
-                subject=f"Expense Report: {report_type}",
+                subject=subject,
                 body=email_body,
                 attachments={os.path.basename(report_file): file_content}
             )

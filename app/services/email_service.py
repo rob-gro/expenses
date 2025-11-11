@@ -8,6 +8,7 @@ from app.config import Config
 import logging
 from app.database.db_manager import DBManager
 from app.nlp.nlp_category_parser import extract_category_from_text, extract_date_range_from_text
+from app.services.email_templates import EmailTemplates
 
 logger = logging.getLogger(__name__)
 
@@ -55,51 +56,16 @@ def send_email(recipient, subject, body, attachments=None):
         logger.error(f"Error preparing email: {str(e)}")
         return False
 def send_confirmation_email(expenses, transcription=None):
-    """Send confirmation email for added expenses"""
+    """Send confirmation email for added expenses - uses unified template"""
     if not expenses:
         return
 
-    first = expenses[0]
-    date = first.get("date")
-    if isinstance(date, datetime.datetime):
-        date = date.strftime("%Y-%m-%d")
-
-    subject = f"Expense added on {date}: £{first.get('amount', 0)} to {first.get('category', 'Other category')}"
-
-    html = """
-    <html>
-    <body>
-        <h2>Expense Recording Confirmation</h2>
-        <p>Your audio message has been processed successfully.</p>
-    """
-
-    # Add transcription if provided
-    if transcription:
-        html += f"<p>Transcription: <em>{transcription}</em></p>"
-
-    html += """
-        <h3>Recorded Expenses:</h3>
-        <ul>
-    """
-    for expense in expenses:
-        exp_date = expense.get("date")
-        if isinstance(exp_date, datetime.datetime):
-            exp_date = exp_date.strftime("%Y-%m-%d")
-
-        html += f"<li><strong>{exp_date}</strong>: {expense.get('vendor', 'Unknown')} - £{expense.get('amount', 0)} ({expense.get('category', 'Uncategorized')})"
-
-        # Add description if available
-        if expense.get('description'):
-            html += f"<br>Description: {expense.get('description')}"
-
-        html += "</li>"
-
-    html += """
-        </ul>
-        <p style='margin-top: 20px;'>--<br>This is an automated message.</p>
-    </body>
-    </html>
-    """
+    # Use unified email template
+    subject, html = EmailTemplates.expense_confirmation(
+        expenses=expenses,
+        transcription=transcription,
+        source="discord"  # This function is primarily called from Discord bot
+    )
 
     msg = EmailMessage()
     msg['Subject'] = subject
@@ -118,27 +84,20 @@ def send_confirmation_email(expenses, transcription=None):
         logger.error(f"Failed to send email: {e}")
 
 def send_category_addition_email(category_name, success, message):
-    """Send confirmation email for category addition"""
-    status = "Success" if success else "Failed"
-    subject = f"Category Addition {status}: {category_name}"
-
-    html = f"""
-    <html>
-    <body>
-        <h3>Category Addition {status}</h3>
-        <p>Result of adding category <strong>"{category_name}"</strong>:</p>
-        <p>{message}</p>
-        <p>{'The new category is now available for expense categorization.' if success else 'Please try again with a different category name.'}</p>
-        <p style='margin-top: 20px;'>--<br>This is an automated message.</p>
-    </body>
-    </html>
-    """
+    """Send confirmation email for category addition - uses unified template"""
+    # Use unified email template
+    subject, html = EmailTemplates.category_action(
+        category_name=category_name,
+        action="added",
+        success=success,
+        message=message
+    )
 
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = Config.EMAIL_SENDER
     msg['To'] = Config.DEFAULT_EMAIL_RECIPIENT
-    msg.set_content(f"Category addition {status.lower()}: {category_name}. {message}")
+    msg.set_content(f"Category addition {'succeeded' if success else 'failed'}: {category_name}. {message}")
     msg.add_alternative(html, subtype='html')
 
     try:
@@ -153,42 +112,19 @@ def send_category_addition_email(category_name, success, message):
         return False
 
 def send_category_confirmation_notification(expense, current_category, predicted_category, alternatives):
-    """Send notification about pending category confirmation"""
+    """Send notification about pending category confirmation - uses unified template"""
     try:
         if not expense:
             logger.error("Cannot send notification - expense details not provided")
             return False
 
-        # Message content
-        subject = "Category Confirmation Required"
-
-        body = f"""
-        <html>
-            <body>
-                <h2>Expense Category Confirmation</h2>
-                <p>The system is uncertain about the category for your recent expense:</p>
-
-                <ul>
-                    <li>Date: {expense['date']}</li>
-                    <li>Amount: £{expense['amount']}</li>
-                    <li>Vendor: {expense['vendor'] or 'Not specified'}</li>
-                    <li>Description: {expense['description'] or 'None'}</li>
-                </ul>
-                <p>Currently assigned category: <strong>{current_category}</strong></p>
-                <p>Predicted category: <strong>{predicted_category or 'No confident prediction'}</strong></p>
-                <p>To confirm the category, click on one of the links below:</p>
-                <ul>
-                    <li><a href="{Config.APP_URL}/confirm-category/{expense['id']}/{current_category}">Confirm current category: {current_category}</a></li>
-
-                    {f'<li><a href="{Config.APP_URL}/confirm-category/{expense["id"]}/{predicted_category}">Confirm predicted category: {predicted_category}</a></li>' if predicted_category else ''}
-
-            {''.join([f'<li><a href="{Config.APP_URL}/confirm-category/{expense["id"]}/{alt["category"]}">Use category: {alt["category"]} (confidence: {alt["confidence"]:.0%})</a></li>' for alt in alternatives])}
-
-                    <li><a href="{Config.APP_URL}/edit-expense/{expense['id']}">Edit expense details</a></li>
-                </ul>
-            </body>
-        </html>
-        """
+        # Use unified email template
+        subject, body = EmailTemplates.category_confirmation_required(
+            expense=expense,
+            current_category=current_category,
+            predicted_category=predicted_category,
+            alternatives=alternatives
+        )
 
         send_email(
             recipient=Config.DEFAULT_EMAIL_RECIPIENT,

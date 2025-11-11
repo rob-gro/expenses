@@ -9,6 +9,7 @@ from app.services.transcription import transcribe_audio
 from app.nlp.expense_extractor import extract_expenses_with_ai
 from app.services.category_service import detect_category_command
 from app.services.email_service import send_email, send_category_confirmation_notification
+from app.services.email_templates import EmailTemplates
 from app.database.db_manager import DBManager
 from app.config import Config
 
@@ -109,6 +110,32 @@ class ExpenseService:
             )
 
             if expense_id:
+                # Send confirmation email
+                try:
+                    expense_for_email = [{
+                        'date': expense_date,
+                        'amount': amount,
+                        'vendor': expense_data.get('vendor', ''),
+                        'category': expense_data.get('category', 'Other'),
+                        'description': expense_data.get('description', '')
+                    }]
+
+                    subject, html = EmailTemplates.expense_confirmation(
+                        expenses=expense_for_email,
+                        transcription=None,  # No transcription for manual entry
+                        source="web_manual"
+                    )
+
+                    send_email(
+                        recipient=Config.DEFAULT_EMAIL_RECIPIENT,
+                        subject=subject,
+                        body=html
+                    )
+                    logger.info("Manual expense confirmation email sent")
+                except Exception as e:
+                    logger.error(f"Failed to send manual expense email: {str(e)}")
+                    # Don't fail the whole operation if email fails
+
                 return {
                     "success": True,
                     "message": "Expense saved successfully",
@@ -197,139 +224,13 @@ class ExpenseService:
                     metrics = self.db_manager.get_latest_model_metrics()
 
                     if metrics:
-                        # Extract confusion matrix data
-                        confusion_data = metrics.get('confusion_matrix', {})
-                        if isinstance(confusion_data, str):
-                            import json
-                            confusion_data = json.loads(confusion_data)
-
-                        cv_scores = confusion_data.get('cv_scores', [])
-
-                        # Calculate CV statistics
-                        if cv_scores:
-                            cv_min = min(cv_scores) * 100
-                            cv_max = max(cv_scores) * 100
-                            cv_avg = (sum(cv_scores) / len(cv_scores)) * 100
-                            cv_std = (sum((x - cv_avg/100)**2 for x in cv_scores) / len(cv_scores)) ** 0.5 * 100
-
-                            # Format individual scores
-                            cv_scores_formatted = []
-                            for i, score in enumerate(cv_scores, 1):
-                                cv_scores_formatted.append(f"Test {i}: {score:.4f} ({score*100:.2f}%)")
-                            cv_scores_str = '<br/>'.join(cv_scores_formatted)
-
-                            # Interpretation
-                            if cv_std < 5:
-                                stability = "Excellent - very stable performance"
-                            elif cv_std < 10:
-                                stability = "Good - consistent performance"
-                            elif cv_std < 15:
-                                stability = "Fair - moderate variability"
-                            else:
-                                stability = "Poor - high variability, more data needed"
-                        else:
-                            cv_scores_str = 'N/A'
-                            cv_min = cv_max = cv_avg = cv_std = 0
-                            stability = 'N/A'
-
-                        # Format email body
-                        email_body = f"""
-                        <html>
-                            <body>
-                                <h2>Model Training Completed Successfully</h2>
-                                <p>The model has been trained and validated using your expense data.</p>
-
-                                <h3>Overall Performance:</h3>
-                                <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse;">
-                                    <tr>
-                                        <td><strong>Training Type:</strong></td>
-                                        <td>{metrics.get('training_type', 'N/A')}</td>
-                                    </tr>
-                                    <tr>
-                                        <td><strong>Average Accuracy:</strong></td>
-                                        <td>{metrics.get('accuracy', 0):.4f} ({metrics.get('accuracy', 0)*100:.2f}%)</td>
-                                    </tr>
-                                    <tr>
-                                        <td><strong>Training Samples:</strong></td>
-                                        <td>{metrics.get('samples_count', 0)} expenses</td>
-                                    </tr>
-                                    <tr>
-                                        <td><strong>Categories:</strong></td>
-                                        <td>{metrics.get('categories_count', 0)} different categories</td>
-                                    </tr>
-                                    <tr>
-                                        <td><strong>Training Date:</strong></td>
-                                        <td>{metrics.get('created_at', 'N/A')}</td>
-                                    </tr>
-                                </table>
-
-                                <h3>Cross-Validation Analysis:</h3>
-                                <p style="margin-top: 10px; margin-bottom: 10px;">
-                                    <strong>What is Cross-Validation?</strong><br/>
-                                    The model was tested 5 times on different subsets of your data. Each test uses 80% for training and 20% for validation.
-                                    This helps ensure the model works well on expenses it hasn't seen before.
-                                </p>
-
-                                <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; margin-bottom: 15px;">
-                                    <tr>
-                                        <td><strong>Individual Test Results:</strong></td>
-                                        <td>{cv_scores_str}</td>
-                                    </tr>
-                                    <tr style="background-color: #f0f0f0;">
-                                        <td><strong>Best Performance:</strong></td>
-                                        <td>{cv_max:.2f}%</td>
-                                    </tr>
-                                    <tr style="background-color: #f0f0f0;">
-                                        <td><strong>Worst Performance:</strong></td>
-                                        <td>{cv_min:.2f}%</td>
-                                    </tr>
-                                    <tr style="background-color: #f0f0f0;">
-                                        <td><strong>Average:</strong></td>
-                                        <td>{cv_avg:.2f}%</td>
-                                    </tr>
-                                    <tr style="background-color: #f0f0f0;">
-                                        <td><strong>Variability (Std Dev):</strong></td>
-                                        <td>±{cv_std:.2f}%</td>
-                                    </tr>
-                                    <tr style="background-color: #e3f2fd;">
-                                        <td><strong>Stability Assessment:</strong></td>
-                                        <td><strong>{stability}</strong></td>
-                                    </tr>
-                                </table>
-
-                                <h4>What These Numbers Mean:</h4>
-                                <ul style="margin-top: 5px;">
-                                    <li><strong>Average Accuracy ({metrics.get('accuracy', 0)*100:.2f}%):</strong>
-                                        The model correctly predicts categories for about {int(metrics.get('accuracy', 0)*100)} out of 100 expenses.</li>
-                                    <li><strong>Variability (±{cv_std:.2f}%):</strong>
-                                        How much the accuracy changes between tests. Lower is better - means the model is consistent.</li>
-                                    <li><strong>Best vs Worst ({cv_max:.2f}% vs {cv_min:.2f}%):</strong>
-                                        Shows the range of performance. A smaller gap means more reliable predictions.</li>
-                                </ul>
-
-                                <h4>How to Improve the Model:</h4>
-                                <ul style="margin-top: 5px; margin-bottom: 20px;">
-                                    <li>Add more expenses to each category (aim for at least 20-30 per category)</li>
-                                    <li>Correct wrong categories when you see them in "View Expenses" tab</li>
-                                    <li>Use consistent vendor names and descriptions</li>
-                                    <li>Retrain the model periodically as you add more data</li>
-                                </ul>
-
-                                <p style="margin-top: 20px; padding: 10px; background-color: #fff3cd; border-left: 4px solid #ffc107;">
-                                    <strong>Note:</strong> {metrics.get('notes', 'Model training completed successfully.')}
-                                </p>
-
-                                <p style="margin-top: 20px;">
-                                    <small>This is an automated message from your Expense Tracking System.</small>
-                                </p>
-                            </body>
-                        </html>
-                        """
+                        # Use unified email template
+                        subject, email_body = EmailTemplates.training_complete(metrics)
 
                         # Send email
                         send_email(
                             recipient=Config.DEFAULT_EMAIL_RECIPIENT,
-                            subject=f"Model Training Completed - Accuracy: {metrics.get('accuracy', 0)*100:.2f}%",
+                            subject=subject,
                             body=email_body
                         )
                         logger.info("Training completion email sent successfully")
@@ -352,24 +253,23 @@ class ExpenseService:
             return {"success": False, "error": f"Failed to train Qdrant model: {str(e)}"}
 
     def _process_category_command(self, category_name: str, transcription: str, email: Optional[str]) -> Dict:
-        """Process category addition command"""
+        """Process category addition command - uses unified template"""
         success, message = self.db_manager.add_category(category_name)
 
-        # Send email notification
+        # Send email notification using unified template
         if email:
+            subject, body = EmailTemplates.category_action(
+                category_name=category_name,
+                action="added",
+                success=success,
+                message=message,
+                transcription=transcription
+            )
+
             send_email(
                 recipient=email,
-                subject="Expense Category Action",
-                body=f"""
-                <html>
-                    <body>
-                        <h2>Category Action</h2>
-                        <p>Your audio command has been processed.</p>
-                        <p>Transcription: <em>{transcription}</em></p>
-                        <p>Result: {message}</p>
-                    </body>
-                </html>
-                """
+                subject=subject,
+                body=body
             )
 
         return {
@@ -428,26 +328,19 @@ class ExpenseService:
         return expense_ids, expense_details
 
     def _send_confirmation_email(self, email: str, transcription: str, expenses: List[Dict]):
-        """Send confirmation email for processed expenses"""
+        """Send confirmation email for processed expenses - uses unified template"""
         try:
-            email_body = f"""
-            <html>
-                <body>
-                    <h2>Expense Recording Confirmation</h2>
-                    <p>Your audio message has been processed successfully.</p>
-                    <p>Transcription: <em>{transcription}</em></p>
-                    <h3>Recorded Expenses:</h3>
-                    <ul>
-                        {"".join(f"<li>{expense['date'].strftime('%Y-%m-%d') if isinstance(expense['date'], datetime.datetime) else expense['date']}: {expense.get('vendor', 'Unknown')} - £{expense.get('amount', 0)} ({expense.get('category', 'Uncategorized')})</li>" for expense in expenses)}
-                    </ul>
-                </body>
-            </html>
-            """
+            # Use unified email template
+            subject, html = EmailTemplates.expense_confirmation(
+                expenses=expenses,
+                transcription=transcription,
+                source="web_audio"
+            )
 
             send_email(
                 recipient=email,
-                subject="Expense(s) Recorded Successfully",
-                body=email_body
+                subject=subject,
+                body=html
             )
 
         except Exception as e:
