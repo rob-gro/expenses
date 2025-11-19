@@ -211,7 +211,17 @@ class EmailTemplates:
             import json
             confusion_data = json.loads(confusion_data)
 
+        # The saved JSON has structure: {'confusion_matrix': {...actual data...}, 'cv_scores': [...], ...}
+        # We need to extract the actual nested confusion_matrix
+        actual_cm_data = confusion_data.get('confusion_matrix', {})
+
+        # Extract data from the nested structure
         cv_scores = confusion_data.get('cv_scores', [])
+        per_category_metrics = actual_cm_data.get('per_category_metrics', {})
+        best_category = actual_cm_data.get('best_category')
+        worst_category = actual_cm_data.get('worst_category')
+        top_3_categories = actual_cm_data.get('top_3_categories', [])
+        confused_pairs = actual_cm_data.get('confused_pairs', [])
 
         # Calculate CV statistics
         if cv_scores:
@@ -223,7 +233,7 @@ class EmailTemplates:
             # Format individual scores
             cv_scores_formatted = []
             for i, score in enumerate(cv_scores, 1):
-                cv_scores_formatted.append(f"Test {i}: {score:.4f} ({score*100:.2f}%)")
+                cv_scores_formatted.append(f"Fold {i}: {score:.4f} ({score*100:.2f}%)")
             cv_scores_str = '<br/>'.join(cv_scores_formatted)
 
             # Interpretation
@@ -243,45 +253,182 @@ class EmailTemplates:
         accuracy = metrics.get('accuracy', 0)
         subject = f"ML Training Complete - {accuracy*100:.2f}% Accuracy"
 
+        # Build per-category performance table
+        per_category_html = ""
+        if per_category_metrics:
+            category_rows = []
+            for category, cat_metrics in sorted(per_category_metrics.items(), key=lambda x: x[1]['f1_score'], reverse=True):
+                row = f"""
+                <tr>
+                    <td style="font-weight: bold; color: #2196F3;">{category}</td>
+                    <td>{cat_metrics['samples']}</td>
+                    <td>{cat_metrics['precision']*100:.1f}%</td>
+                    <td>{cat_metrics['recall']*100:.1f}%</td>
+                    <td style="font-weight: bold;">{cat_metrics['f1_score']*100:.1f}%</td>
+                    <td>{cat_metrics['accuracy']*100:.1f}%</td>
+                    <td>{cat_metrics['confidence']*100:.1f}%</td>
+                </tr>
+                """
+                category_rows.append(row)
+
+            per_category_html = f"""
+                <h3>📊 Per-Category Performance Metrics</h3>
+                <table class="detail-table" style="font-size: 13px;">
+                    <tr style="background-color: #2196F3; color: white;">
+                        <th style="padding: 10px; text-align: left;">Category</th>
+                        <th style="padding: 10px; text-align: center;">Samples</th>
+                        <th style="padding: 10px; text-align: center;">Precision</th>
+                        <th style="padding: 10px; text-align: center;">Recall</th>
+                        <th style="padding: 10px; text-align: center;">F1-Score</th>
+                        <th style="padding: 10px; text-align: center;">Accuracy</th>
+                        <th style="padding: 10px; text-align: center;">Confidence</th>
+                    </tr>
+                    {''.join(category_rows)}
+                </table>
+            """
+
+        # Build best/worst categories section
+        best_worst_html = ""
+        if best_category and worst_category:
+            best_worst_html = f"""
+                <div style="display: flex; gap: 20px; margin: 20px 0;">
+                    <div style="flex: 1; padding: 15px; background-color: #e8f5e9; border-left: 4px solid #4caf50;">
+                        <strong style="color: #4caf50;">🏆 Best Category:</strong><br/>
+                        <span style="font-size: 16px; font-weight: bold;">{best_category['name']}</span><br/>
+                        <span style="color: #666;">F1-Score: {best_category['f1_score']*100:.1f}%</span>
+                    </div>
+                    <div style="flex: 1; padding: 15px; background-color: #ffebee; border-left: 4px solid #f44336;">
+                        <strong style="color: #f44336;">⚠️ Needs Improvement:</strong><br/>
+                        <span style="font-size: 16px; font-weight: bold;">{worst_category['name']}</span><br/>
+                        <span style="color: #666;">F1-Score: {worst_category['f1_score']*100:.1f}%</span>
+                    </div>
+                </div>
+            """
+
+        # Build top 3 categories section
+        top_3_html = ""
+        if top_3_categories:
+            medals = ['🥇', '🥈', '🥉']
+            top_3_items = []
+            for i, cat in enumerate(top_3_categories[:3]):
+                medal = medals[i] if i < 3 else '•'
+                top_3_items.append(f"<li>{medal} <strong>{cat['name']}</strong> - F1: {cat['f1_score']*100:.1f}%</li>")
+            top_3_html = f"""
+                <div class="info-box">
+                    <strong>🌟 Top 3 Categories:</strong>
+                    <ul style="margin: 5px 0;">
+                        {''.join(top_3_items)}
+                    </ul>
+                </div>
+            """
+
+        # Build confused pairs section
+        confused_html = ""
+        if confused_pairs:
+            confused_items = []
+            for pair in confused_pairs[:5]:
+                confused_items.append(
+                    f"<li><strong>{pair['true_category']}</strong> → <em>{pair['predicted_category']}</em> "
+                    f"({pair['count']} {'time' if pair['count'] == 1 else 'times'})</li>"
+                )
+            confused_html = f"""
+                <h4>🔄 Most Confused Category Pairs</h4>
+                <ul style="margin: 5px 0; color: #666;">
+                    {''.join(confused_items)}
+                </ul>
+            """
+
+        # Build confidence analysis section
+        confidence_html = ""
+        high_conf_cats = []
+        low_conf_cats = []
+
+        if per_category_metrics:
+            avg_confidence = sum(m['confidence'] for m in per_category_metrics.values()) / len(per_category_metrics) * 100
+            high_conf_cats = [cat for cat, m in per_category_metrics.items() if m['confidence'] > 0.8]
+            low_conf_cats = [cat for cat, m in per_category_metrics.items() if m['confidence'] < 0.6]
+
+            confidence_html = f"""
+                <h3>💡 Confidence Analysis</h3>
+                <table class="detail-table">
+                    <tr>
+                        <td>Average Confidence:</td>
+                        <td><strong>{avg_confidence:.1f}%</strong></td>
+                    </tr>
+                    <tr style="background-color: #e8f5e9;">
+                        <td>High Confidence Categories (>80%):</td>
+                        <td>{len(high_conf_cats)} categories{': ' + ', '.join(high_conf_cats[:5]) if high_conf_cats else ''}</td>
+                    </tr>
+                    <tr style="background-color: #fff3e0;">
+                        <td>Low Confidence Categories (<60%):</td>
+                        <td>{len(low_conf_cats)} categories{': ' + ', '.join(low_conf_cats[:5]) if low_conf_cats else ''}</td>
+                    </tr>
+                </table>
+            """
+
+        # Build actionable recommendations
+        recommendations = []
+        if worst_category and worst_category['f1_score'] < 0.6:
+            recommendations.append(f"• Add more training samples for <strong>{worst_category['name']}</strong> category")
+        if low_conf_cats:
+            recommendations.append(f"• Review and clarify category definitions for: {', '.join(low_conf_cats[:3])}")
+        if confused_pairs:
+            top_confused = confused_pairs[0]
+            recommendations.append(f"• Categories <strong>{top_confused['true_category']}</strong> and <strong>{top_confused['predicted_category']}</strong> are frequently confused - consider merging or clarifying")
+        if cv_std > 10:
+            recommendations.append("• Model variability is high - add more diverse training samples")
+        if not recommendations:
+            recommendations.append("✅ Model performance is good - continue collecting diverse expense data")
+
+        recommendations_html = f"""
+            <h3>🎯 Actionable Recommendations</h3>
+            <div style="background-color: #fff3e0; padding: 15px; border-left: 4px solid #ff9800;">
+                {'<br/>'.join(recommendations)}
+            </div>
+        """
+
         # Build HTML body
         html = f"""
         <html>
         <head>
             {EmailTemplates.COMMON_STYLES}
+            <style>
+                .metric-card {{
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 20px;
+                    border-radius: 8px;
+                    margin: 20px 0;
+                    text-align: center;
+                }}
+                .metric-value {{
+                    font-size: 36px;
+                    font-weight: bold;
+                    margin: 10px 0;
+                }}
+                th {{
+                    font-weight: bold;
+                    text-align: left;
+                }}
+            </style>
         </head>
         <body>
             <div class="container">
-                <h2>Model Training Completed Successfully</h2>
-                <p>The model has been trained and validated using your expense data.</p>
+                <div style="background-color: #2196F3; color: white; padding: 20px; margin: -20px -20px 20px -20px; border-radius: 8px 8px 0 0;">
+                    <h2 style="color: white; margin: 0;">🤖 ML Model Training Completed</h2>
+                    <p style="margin: 10px 0 0 0; opacity: 0.9;">Vector-based expense classification model</p>
+                </div>
 
-                <h3>Overall Performance:</h3>
+                <div class="metric-card">
+                    <div style="opacity: 0.9; font-size: 14px;">OVERALL ACCURACY</div>
+                    <div class="metric-value">{accuracy*100:.2f}%</div>
+                    <div style="opacity: 0.9; font-size: 12px;">{metrics.get('samples_count', 0)} samples • {metrics.get('categories_count', 0)} categories</div>
+                </div>
+
+                <h3>📈 Cross-Validation Results</h3>
                 <table class="detail-table">
                     <tr>
-                        <td>Training Type:</td>
-                        <td>{metrics.get('training_type', 'N/A')}</td>
-                    </tr>
-                    <tr>
-                        <td>Average Accuracy:</td>
-                        <td>{accuracy:.4f} ({accuracy*100:.2f}%)</td>
-                    </tr>
-                    <tr>
-                        <td>Training Samples:</td>
-                        <td>{metrics.get('samples_count', 0)} expenses</td>
-                    </tr>
-                    <tr>
-                        <td>Categories:</td>
-                        <td>{metrics.get('categories_count', 0)} different categories</td>
-                    </tr>
-                    <tr>
-                        <td>Training Date:</td>
-                        <td>{metrics.get('created_at', 'N/A')}</td>
-                    </tr>
-                </table>
-
-                <h3>Cross-Validation Analysis:</h3>
-                <table class="detail-table">
-                    <tr>
-                        <td>Individual Test Results:</td>
+                        <td>Fold Results:</td>
                         <td>{cv_scores_str}</td>
                     </tr>
                     <tr style="background-color: #f0f0f0;">
@@ -301,13 +448,28 @@ class EmailTemplates:
                         <td>±{cv_std:.2f}%</td>
                     </tr>
                     <tr style="background-color: #e3f2fd;">
-                        <td>Stability Assessment:</td>
+                        <td>Stability:</td>
                         <td><strong>{stability}</strong></td>
                     </tr>
                 </table>
 
-                <div class="warning-box">
-                    <strong>Note:</strong> {metrics.get('notes', 'Model training completed successfully.')}
+                {per_category_html}
+
+                {best_worst_html}
+
+                {top_3_html}
+
+                {confused_html}
+
+                {confidence_html}
+
+                {recommendations_html}
+
+                <div style="margin-top: 30px; padding: 15px; background-color: #f5f5f5; border-radius: 4px; font-size: 12px; color: #666;">
+                    <strong>Training Info:</strong><br/>
+                    Type: {metrics.get('training_type', 'Vector (Qdrant + SentenceTransformers)')}<br/>
+                    Date: {metrics.get('created_at', 'N/A')}<br/>
+                    Model: all-MiniLM-L6-v2 embeddings with cosine similarity
                 </div>
 
                 {EmailTemplates.FOOTER}

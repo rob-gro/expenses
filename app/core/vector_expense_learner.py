@@ -106,6 +106,11 @@ class QdrantExpenseLearner:
             accuracies = []
             fold_num = 0
 
+            # Track all predictions for detailed metrics
+            all_true_labels = []
+            all_predicted_labels = []
+            all_confidences = []
+
             for train_idx, test_idx in kf.split(df):
                 fold_num += 1
                 logger.info(f"Fold {fold_num}/5: Training on {len(train_idx)} samples, testing on {len(test_idx)} samples")
@@ -146,6 +151,10 @@ class QdrantExpenseLearner:
                             limit=7
                         )
 
+                        true_label = expense['category']
+                        predicted_label = None
+                        confidence = 0.0
+
                         if results:
                             # Weighted voting
                             categories = {}
@@ -155,9 +164,19 @@ class QdrantExpenseLearner:
                                 categories[cat] = categories.get(cat, 0) + score
 
                             if categories:
+                                # Normalize to get confidence
+                                total_score = sum(categories.values())
                                 predicted = max(categories.items(), key=lambda x: x[1])[0]
-                                if predicted == expense['category']:
+                                confidence = categories[predicted] / total_score if total_score > 0 else 0.0
+
+                                predicted_label = predicted
+                                if predicted == true_label:
                                     correct += 1
+
+                        # Track all predictions
+                        all_true_labels.append(true_label)
+                        all_predicted_labels.append(predicted_label if predicted_label else 'Unknown')
+                        all_confidences.append(confidence)
 
                     accuracy = correct / len(test_df) if len(test_df) > 0 else 0
                     accuracies.append(accuracy)
@@ -175,6 +194,67 @@ class QdrantExpenseLearner:
 
             # Log calculated accuracy
             logger.info(f"Vector model metrics calculated: accuracy={mean_accuracy:.4f}")
+
+            # Calculate detailed per-category metrics
+            from sklearn.metrics import confusion_matrix, classification_report
+            import json
+
+            # Build confusion matrix
+            cm = confusion_matrix(all_true_labels, all_predicted_labels, labels=valid_categories)
+
+            # Calculate per-category metrics
+            per_category_metrics = {}
+            category_confidences = {cat: [] for cat in valid_categories}
+
+            # Group confidences by category
+            for true_label, conf in zip(all_true_labels, all_confidences):
+                if true_label in category_confidences:
+                    category_confidences[true_label].append(conf)
+
+            # Calculate metrics for each category
+            for i, category in enumerate(valid_categories):
+                true_positives = cm[i][i]
+                false_positives = cm[:, i].sum() - true_positives
+                false_negatives = cm[i, :].sum() - true_positives
+
+                total_samples = cm[i, :].sum()
+                precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
+                recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
+                f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+                accuracy = true_positives / total_samples if total_samples > 0 else 0
+
+                avg_confidence = sum(category_confidences[category]) / len(category_confidences[category]) if category_confidences[category] else 0
+
+                per_category_metrics[category] = {
+                    'samples': int(total_samples),
+                    'precision': float(precision),
+                    'recall': float(recall),
+                    'f1_score': float(f1),
+                    'accuracy': float(accuracy),
+                    'confidence': float(avg_confidence)
+                }
+
+            # Find best/worst categories
+            sorted_categories = sorted(per_category_metrics.items(), key=lambda x: x[1]['f1_score'], reverse=True)
+            best_category = sorted_categories[0] if sorted_categories else None
+            worst_category = sorted_categories[-1] if sorted_categories else None
+            top_3_categories = sorted_categories[:3] if len(sorted_categories) >= 3 else sorted_categories
+
+            # Find most confused pairs
+            confused_pairs = []
+            for i in range(len(valid_categories)):
+                for j in range(len(valid_categories)):
+                    if i != j and cm[i][j] > 0:
+                        confused_pairs.append({
+                            'true_category': valid_categories[i],
+                            'predicted_category': valid_categories[j],
+                            'count': int(cm[i][j])
+                        })
+
+            # Sort by count descending and take top 5
+            confused_pairs = sorted(confused_pairs, key=lambda x: x['count'], reverse=True)[:5]
+
+            logger.info(f"Calculated detailed metrics for {len(per_category_metrics)} categories")
 
             # Now upsert all points to main collection
             for idx, expense in enumerate(expenses):
@@ -205,7 +285,16 @@ class QdrantExpenseLearner:
                 'accuracy': mean_accuracy,
                 'samples_count': len(df),
                 'categories_count': len(valid_categories),
-                'confusion_matrix': [],  # Empty for vectors
+                'confusion_matrix': {
+                    'matrix': cm.tolist(),
+                    'labels': valid_categories,
+                    'cv_scores': accuracies,
+                    'per_category_metrics': per_category_metrics,
+                    'best_category': {'name': best_category[0], 'f1_score': best_category[1]['f1_score']} if best_category else None,
+                    'worst_category': {'name': worst_category[0], 'f1_score': worst_category[1]['f1_score']} if worst_category else None,
+                    'top_3_categories': [{'name': cat[0], 'f1_score': cat[1]['f1_score']} for cat in top_3_categories],
+                    'confused_pairs': confused_pairs
+                },
                 'confusion_labels': valid_categories,
                 'top_features': {},
                 'cv_scores': accuracies
