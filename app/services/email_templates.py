@@ -128,7 +128,7 @@ class EmailTemplates:
                 </tr>
                 <tr>
                     <td>Amount:</td>
-                    <td>£{amount:.2f}</td>
+                    <td>£{amount}</td>
                 </tr>
                 <tr>
                     <td>Merchant:</td>
@@ -241,7 +241,7 @@ class EmailTemplates:
             stability = 'N/A'
 
         accuracy = metrics.get('accuracy', 0)
-        subject = f"Model Training Completed - Accuracy: {accuracy*100:.2f}%"
+        subject = f"ML Training Complete - {accuracy*100:.2f}% Accuracy"
 
         # Build HTML body
         html = f"""
@@ -279,12 +279,6 @@ class EmailTemplates:
                 </table>
 
                 <h3>Cross-Validation Analysis:</h3>
-                <div class="info-box">
-                    <strong>What is Cross-Validation?</strong><br/>
-                    The model was tested 5 times on different subsets of your data. Each test uses 80% for training and 20% for validation.
-                    This helps ensure the model works well on expenses it hasn't seen before.
-                </div>
-
                 <table class="detail-table">
                     <tr>
                         <td>Individual Test Results:</td>
@@ -311,24 +305,6 @@ class EmailTemplates:
                         <td><strong>{stability}</strong></td>
                     </tr>
                 </table>
-
-                <h4>What These Numbers Mean:</h4>
-                <ul>
-                    <li><strong>Average Accuracy ({accuracy*100:.2f}%):</strong>
-                        The model correctly predicts categories for about {int(accuracy*100)} out of 100 expenses.</li>
-                    <li><strong>Variability (±{cv_std:.2f}%):</strong>
-                        How much the accuracy changes between tests. Lower is better - means the model is consistent.</li>
-                    <li><strong>Best vs Worst ({cv_max:.2f}% vs {cv_min:.2f}%):</strong>
-                        Shows the range of performance. A smaller gap means more reliable predictions.</li>
-                </ul>
-
-                <h4>How to Improve the Model:</h4>
-                <ul>
-                    <li>Add more expenses to each category (aim for at least 20-30 per category)</li>
-                    <li>Correct wrong categories when you see them in "View Expenses" tab</li>
-                    <li>Use consistent vendor names and descriptions</li>
-                    <li>Retrain the model periodically as you add more data</li>
-                </ul>
 
                 <div class="warning-box">
                     <strong>Note:</strong> {metrics.get('notes', 'Model training completed successfully.')}

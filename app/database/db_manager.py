@@ -503,6 +503,24 @@ class DBManager:
             logger.error(f"Error retrieving categories: {str(e)}", exc_info=True)
             return Config.DEFAULT_CATEGORIES  # Fallback to default categories
 
+    def get_all_vendors(self):
+        """Get all unique vendor names from database"""
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT DISTINCT vendor
+                        FROM expenses
+                        WHERE vendor IS NOT NULL AND vendor != ''
+                        ORDER BY vendor
+                    """)
+                    vendors = cursor.fetchall()
+                    return [row['vendor'] for row in vendors]
+
+        except Exception as e:
+            logger.error(f"Error retrieving vendors: {str(e)}", exc_info=True)
+            return []
+
     def add_category(self, name):
         """Add a category to the database if it doesn't exist already"""
         try:

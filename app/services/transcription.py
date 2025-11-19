@@ -67,6 +67,11 @@ def transcribe_audio(audio_file_path):
 
         # Log and return the transcription
         transcription = response
+
+        # Post-process: Remove PLN currency hallucinations (Whisper adds "zł" when hearing Polish)
+        # System uses GBP by default, so remove Polish currency markers
+        transcription = transcription.replace(' zł', '').replace('zł', '').replace(' PLN', '').replace('PLN', '')
+
         logger.info(f"Transcription successful: {transcription[:100]}...")
         return transcription
 

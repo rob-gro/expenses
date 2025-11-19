@@ -2,6 +2,8 @@ import os
 import uuid
 import datetime
 import logging
+import sys
+import importlib
 from typing import Dict, List, Optional
 from werkzeug.utils import secure_filename
 
@@ -106,6 +108,7 @@ class ExpenseService:
                 needs_confirmation=False,
                 predicted_category=None,
                 alternative_categories=[],
+                confidence_score=1.0,  # Manual entry = 100% confidence
                 notification_callback=None
             )
 
@@ -225,6 +228,11 @@ class ExpenseService:
 
                     if metrics:
                         # Use unified email template
+                    # Force reload EmailTemplates module to get latest changes from disk
+                    if 'app.services.email_templates' in sys.modules:
+                        importlib.reload(sys.modules['app.services.email_templates'])
+                        from app.services.email_templates import EmailTemplates
+                        logger.info("EmailTemplates module reloaded from disk - ensuring fresh version")
                         subject, email_body = EmailTemplates.training_complete(metrics)
 
                         # Send email

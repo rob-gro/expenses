@@ -51,7 +51,7 @@ def extract_expenses_with_ai(text: str) -> Optional[List[Dict]]:
         date_context = _build_date_context(relative_date)
 
         # Build enhanced prompt with Chain of Thought
-        system_prompt = _build_system_prompt()
+        system_prompt = _build_system_prompt(all_categories)
         user_prompt = _build_user_prompt(text, categories_str, date_context)
 
         # Call OpenAI API
@@ -73,6 +73,12 @@ def extract_expenses_with_ai(text: str) -> Optional[List[Dict]]:
         expenses = _post_process_expenses(expenses, relative_date)
         expenses = _validate_categorization(expenses)
 
+        # VENDOR CORRECTION - before ML categorization (so ML has correct vendor)
+        for expense in expenses:
+            if expense.get('vendor'):
+                corrected_vendor = _correct_vendor_name(expense['vendor'], db)
+                expense['vendor'] = corrected_vendor
+
         # Use ML model for category prediction if available
         expenses = _apply_ml_categorization(expenses, db)
 
@@ -83,9 +89,42 @@ def extract_expenses_with_ai(text: str) -> Optional[List[Dict]]:
         logger.error(f"Error in extract_expenses_with_ai: {str(e)}", exc_info=True)
         return None
 
-def _build_system_prompt() -> str:
-    """Build enhanced system prompt with Chain of Thought reasoning"""
-    return """
+def _build_system_prompt(categories: List[str]) -> str:
+    """Build enhanced system prompt with Chain of Thought reasoning and dynamic categories"""
+
+    # Category descriptions with examples
+    category_descriptions = {
+        'Groceries': 'Food & Beverages (vegetables, fruits, bread, milk, snacks, non-alcoholic drinks)',
+        'Alcohol': 'Alcoholic Drinks (beer, wine, spirits, cocktails)',
+        'Cleaning Supplies': 'Cleaning Products (detergents, bleach, floor cleaner, toilet block, insecticide)',
+        'Household Items': 'Household Articles (lightbulbs, batteries, trash bags, paper towels, windscreen fluid)',
+        'Hygiene Products': 'Personal Hygiene (toilet paper, soap, toothpaste, shampoo, tissues)',
+        'Fuel': 'Vehicle Fuel (petrol, diesel, gas)',
+        'Healthcare': 'Health Items (medicines, vitamins, supplements, medical supplies, pharmacy items)',
+        'Clothing': 'Apparel (clothes, shoes, accessories)',
+        'Entertainment': 'Leisure (games, movies, events, subscriptions)',
+        'Transportation': 'Travel (public transport, taxi, parking)',
+        'Utilities': 'Bills (electricity, water, gas, internet)',
+        'Rent': 'Housing (rent, mortgage, property fees)',
+        'Education': 'Learning (books, courses, school supplies)',
+        'Cosmetics': 'Beauty (makeup, skincare, toiletries)',
+        'Office supplies': 'Work Items (stationery, equipment)',
+        'Tools': 'Hardware & Tools (hammer, screwdriver, drill, torch/flashlight, ladder)',
+        'Car': 'Car Maintenance (oil, repairs, car wash, parts)',
+        'Furniture': 'Furniture & Home Decor (chairs, tables, lamps, decorations)',
+        'Insurance': 'Insurance Payments (car, health, home, life insurance)',
+        'Materials': 'Building Materials (wood, cement, paint, tiles)',
+        'Pets': 'Pet Supplies (food, toys, vet visits)',
+        'Other': 'Everything Else (uncategorized items)'
+    }
+
+    # Build category rules from available categories
+    category_rules = []
+    for cat in sorted(categories):
+        description = category_descriptions.get(cat, f'{cat} items')
+        category_rules.append(f"• '{cat}' → {description}")
+
+    return f"""
 You are an expert financial assistant specializing in expense categorization from shopping receipts.
 
 CORE METHODOLOGY - CHAIN OF THOUGHT:
@@ -95,20 +134,7 @@ Step 3: CATEGORIZE - Assign category based on the item's true nature
 Step 4: PRICE - Match each item with its specific price
 
 CATEGORIZATION RULES:
-🥬 Food & Beverages → 'Groceries' (vegetables, fruits, bread, milk, snacks, non-alcoholic drinks)
-🍺 Alcoholic Drinks → 'Alcohol' (beer, wine, spirits, cocktails)
-🧽 Cleaning Products → 'Household Chemicals' (detergents, soaps, disinfectants, bleach)
-⛽ Vehicle Fuel → 'Fuel' (petrol, diesel, gas)
-💊 Health Items → 'Healthcare' (medicines, vitamins, medical supplies)
-👕 Apparel → 'Clothing' (clothes, shoes, accessories)
-🎮 Leisure → 'Entertainment' (games, movies, events, subscriptions)
-🚗 Travel → 'Transportation' (public transport, taxi, parking)
-💡 Bills → 'Utilities' (electricity, water, gas, internet)
-🏠 Housing → 'Rent' (rent, mortgage, property fees)
-📚 Learning → 'Education' (books, courses, school supplies)
-💄 Beauty → 'Cosmetics' (makeup, skincare, toiletries)
-📝 Work Items → 'Office supplies' (stationery, equipment)
-❓ Everything Else → 'Other'
+{chr(10).join(category_rules)}
 
 CRITICAL INDEPENDENCE RULE:
 Each product is categorized INDEPENDENTLY. A cucumber is ALWAYS Groceries, even if bought with beer.
@@ -117,13 +143,28 @@ EXAMPLES:
 Input: "cucumber £2.50, beer £3.50"
 Step 1: Parse → [cucumber, beer]
 Step 2: Analyze → cucumber=vegetable, beer=alcohol
-Step 3: Categorize → cucumber=Groceries, beer=Alcohol  
+Step 3: Categorize → cucumber=Groceries, beer=Alcohol
 Step 4: Price → cucumber=£2.50, beer=£3.50
 
 Input: "bread, milk, Domestos"
 Step 1: Parse → [bread, milk, Domestos]
 Step 2: Analyze → bread=food, milk=food, Domestos=cleaner
 Step 3: Categorize → bread=Groceries, milk=Groceries, Domestos=Household Chemicals
+
+Input: "hammer, torch"
+Step 1: Parse → [hammer, torch]
+Step 2: Analyze → hammer=tool, torch=flashlight/tool
+Step 3: Categorize → hammer=Tools, torch=Tools
+
+Input: "vitamin C, milk"
+Step 1: Parse → [vitamin C, milk]
+Step 2: Analyze → vitamin C=supplement/health, milk=food
+Step 3: Categorize → vitamin C=Healthcare, milk=Groceries
+
+Input: "lightbulb, detergent, toilet paper"
+Step 1: Parse → [lightbulb, detergent, toilet paper]
+Step 2: Analyze → lightbulb=household item, detergent=cleaning product, toilet paper=hygiene
+Step 3: Categorize → lightbulb=Household Items, detergent=Cleaning Supplies, toilet paper=Hygiene Products
 
 RESPONSE FORMAT: Valid JSON array only. No explanations.
 """
@@ -222,6 +263,39 @@ def _post_process_expenses(expenses: List[Dict], relative_date: Optional[datetim
 
     return expenses
 
+def _correct_vendor_name(vendor: str, db_manager: DBManager) -> str:
+    """
+    Correct vendor name using fuzzy matching against known vendors from database.
+
+    Examples:
+        "Azda" → "Asda"
+        "Ridlu" → "Lidl"
+        "Tecso" → "Tesco"
+    """
+    if not vendor:
+        return vendor
+
+    # Get known vendors from database
+    known_vendors = db_manager.get_all_vendors()
+
+    # Exact match (case-insensitive)
+    vendor_lower = vendor.lower()
+    for known in known_vendors:
+        if known.lower() == vendor_lower:
+            return known  # Return with correct capitalization
+
+    # Fuzzy match using difflib
+    from difflib import get_close_matches
+    matches = get_close_matches(vendor, known_vendors, n=1, cutoff=0.75)
+
+    if matches:
+        logger.info(f"Vendor correction: '{vendor}' → '{matches[0]}'")
+        return matches[0]
+
+    # No match found - return original
+    return vendor
+
+
 def _validate_categorization(expenses: List[Dict]) -> List[Dict]:
     """
     Post-validation to fix obvious AI categorization mistakes.
@@ -297,12 +371,17 @@ def _apply_ml_categorization(expenses: List[Dict], db_manager: DBManager) -> Lis
     """
     Apply ML model (Qdrant vector-based) for category prediction.
     This overrides OpenAI/rule-based categorization with trained model predictions.
+
+    IMPORTANT: Always sets confidence_score (never leaves it NULL)
     """
     try:
         use_vector_model = os.getenv("USE_VECTOR_MODEL", "True").lower() == "true"
 
         if not use_vector_model:
             logger.info("Vector model disabled (USE_VECTOR_MODEL=False). Using OpenAI categories.")
+            # Set confidence_score = 0.0 for all expenses when ML is disabled
+            for expense in expenses:
+                expense['confidence_score'] = 0.0
             return expenses
 
         # Try to use Qdrant vector model
@@ -327,30 +406,57 @@ def _apply_ml_categorization(expenses: List[Dict], db_manager: DBManager) -> Lis
                     description=description
                 )
 
-                if predicted_category and confidence > 0.3:  # Minimum confidence threshold
+                # ML Confidence Threshold System:
+                # - High confidence (≥85%): Trust ML completely
+                # - Medium confidence (30-85%): Use OpenAI as fallback
+                # - Low confidence (<30%): Use OpenAI
+                MIN_ML_CONFIDENCE = 0.85
+
+                if predicted_category and confidence >= MIN_ML_CONFIDENCE:
+                    # High confidence - trust ML
                     expense['category'] = predicted_category
                     expense['confidence_score'] = confidence
                     expense['ml_prediction'] = predicted_category
                     expense['openai_category'] = openai_category
 
-                    if predicted_category != openai_category:
-                        logger.info(
-                            f"ML override: '{description}' → {predicted_category} "
-                            f"(confidence: {confidence:.2f}, OpenAI suggested: {openai_category})"
-                        )
-                else:
-                    # Keep OpenAI category if ML confidence is too low
                     logger.info(
-                        f"ML confidence too low for '{description}' ({confidence:.2f}), "
-                        f"keeping OpenAI category: {openai_category}"
+                        f"ML: '{description}' → {predicted_category} "
+                        f"(confidence: {confidence:.2f})"
                     )
+                elif confidence >= 0.3 and confidence < MIN_ML_CONFIDENCE:
+                    # Medium confidence - use OpenAI as fallback
+                    expense['category'] = openai_category  # Keep OpenAI prediction
+                    expense['confidence_score'] = confidence
+                    expense['ml_prediction'] = predicted_category
+                    expense['openai_category'] = openai_category
+
+                    logger.info(
+                        f"ML confidence low ({confidence:.2f}) - using OpenAI fallback: "
+                        f"'{description}' → {openai_category} (ML suggested: {predicted_category})"
+                    )
+                else:
+                    # Very low confidence - keep OpenAI
+                    expense['category'] = openai_category
                     expense['confidence_score'] = 0.0
+                    expense['ml_prediction'] = predicted_category if predicted_category else None
+                    expense['openai_category'] = openai_category
+
+                    logger.info(
+                        f"ML confidence too low ({confidence:.2f}) - using OpenAI: "
+                        f"'{description}' → {openai_category}"
+                    )
 
         except (ImportError, Exception) as e:
             logger.warning(f"Vector model not available: {e}. Using OpenAI categories.")
+            # Set confidence_score = 0.0 for all expenses when ML fails
+            for expense in expenses:
+                expense['confidence_score'] = 0.0
 
     except Exception as e:
         logger.error(f"Error in ML categorization: {str(e)}", exc_info=True)
+        # Set confidence_score = 0.0 for all expenses on error
+        for expense in expenses:
+            expense.setdefault('confidence_score', 0.0)
 
     return expenses
 

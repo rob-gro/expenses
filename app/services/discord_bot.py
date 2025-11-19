@@ -181,7 +181,8 @@ async def process_discord_audio(message, attachment):
                     category=expense.get('category', ''),
                     description=expense.get('description', ''),
                     audio_file_path=temp_file.name,
-                    transcription=transcription
+                    transcription=transcription,
+                    confidence_score=expense.get('confidence_score', 0.0)
                 )
                 if expense_id:
                     expense_ids.append(expense_id)

@@ -26,7 +26,8 @@ def process_audio_file(file_path, db_manager, email=None):
                 category=expense.get('category', ''),
                 description=expense.get('description', ''),
                 audio_file_path=file_path,
-                transcription=transcription
+                transcription=transcription,
+                confidence_score=expense.get('confidence_score', 0.0)
             )
             expense_ids.append(expense_id)
 
