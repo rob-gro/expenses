@@ -169,7 +169,8 @@ def view_expenses():
             "total": total,
             "page": page,
             "per_page": per_page,
-            "total_pages": (total + per_page - 1) // per_page
+            "total_pages": (total + per_page - 1) // per_page,
+            "needs_review_count": needs_review_count
         })
 
     except Exception as e:
