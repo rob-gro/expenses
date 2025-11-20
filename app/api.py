@@ -157,11 +157,13 @@ def view_expenses():
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 10))
         category = request.args.get('category')
+        needs_review = request.args.get('needs_review', 'false').lower() == 'true'
 
         expenses, total, needs_review_count = db_manager.get_expenses(
             page=page,
             per_page=per_page,
-            category=category
+            category=category,
+            needs_review=needs_review
         )
 
         return jsonify({

@@ -166,24 +166,21 @@ class ExpenseService:
             if not expense_id or not confirmed_category:
                 return {"success": False, "error": "Missing expense_id or category"}
 
-            # Update expense category
-            success = self.db_manager.update_expense(expense_id, category=confirmed_category)
+            # Update expense category and set confidence to 100% (user confirmed)
+            logger.info(f"Confirming category for expense {expense_id}: category='{confirmed_category}', confidence=1.0")
+            success = self.db_manager.update_expense(
+                expense_id,
+                category=confirmed_category,
+                confidence_score=1.0
+            )
             if not success:
+                logger.error(f"Failed to update expense {expense_id} with category '{confirmed_category}'")
                 return {"success": False, "error": "Failed to update expense"}
+
+            logger.info(f"Successfully updated expense {expense_id}")
 
             # Update categorization status
             self.db_manager.update_pending_categorization(expense_id, status='confirmed')
-
-            # Train model incrementally
-            try:
-                from app.core.vector_expense_learner import QdrantExpenseLearner
-                learner = QdrantExpenseLearner(self.db_manager)
-                learner.incremental_train(expense_id, confirmed_category)
-                logger.info(f"Qdrant incremental training completed for expense {expense_id}")
-            except ImportError as e:
-                logger.error(f"Qdrant libraries not installed: {str(e)}")
-            except Exception as e:
-                logger.error(f"Error with Qdrant incremental training: {str(e)}", exc_info=True)
 
             return {"success": True, "message": "Category confirmed successfully"}
 
@@ -228,12 +225,12 @@ class ExpenseService:
 
                     if metrics:
                         # Use unified email template
-                    # Force reload EmailTemplates module to get latest changes from disk
-                    if 'app.services.email_templates' in sys.modules:
-                        importlib.reload(sys.modules['app.services.email_templates'])
-                        from app.services.email_templates import EmailTemplates
-                        logger.info("EmailTemplates module reloaded from disk - ensuring fresh version")
-                        subject, email_body = EmailTemplates.training_complete(metrics)
+                        # Force reload EmailTemplates module to get latest changes from disk
+                        if 'app.services.email_templates' in sys.modules:
+                            importlib.reload(sys.modules['app.services.email_templates'])
+                            from app.services.email_templates import EmailTemplates
+                            logger.info("EmailTemplates module reloaded from disk - ensuring fresh version")
+                            subject, email_body = EmailTemplates.training_complete(metrics)
 
                         # Send email
                         send_email(

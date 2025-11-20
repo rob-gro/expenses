@@ -413,7 +413,7 @@ class DBManager:
                     params = []
 
                     # Process each update field
-                    allowed_fields = ['date', 'amount', 'vendor', 'category', 'description']
+                    allowed_fields = ['date', 'amount', 'vendor', 'category', 'description', 'confidence_score']
                     for field, value in kwargs.items():
                         if field in allowed_fields and value is not None:
                             set_parts.append(f"{field} = %s")

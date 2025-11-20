@@ -354,6 +354,11 @@ function loadExpenses(page = 1) {
                                 <button class="btn btn-sm btn-success btn-save-category" data-expense-id="${expense.id}" style="display: none;" title="Save category">
                                     💾
                                 </button>
+                                ${expense.confidence_score !== null && expense.confidence_score < 0.70 ? `
+                                    <button class="btn btn-sm btn-primary btn-confirm-category" data-expense-id="${expense.id}" data-category="${expense.category || 'Other'}" title="Confirm category is correct">
+                                        ✓ Confirm
+                                    </button>
+                                ` : ''}
                             </div>
                         </td>
                         <td>${expense.description || ''}</td>
@@ -418,8 +423,7 @@ function populateCategorySelects() {
                     });
                 });
 
-                // Add event listeners after populating
-                setupCategoryChangeHandlers();
+                // Event listeners are set up once in DOMContentLoaded, not here
             }
         })
         .catch(error => {
@@ -427,7 +431,7 @@ function populateCategorySelects() {
         });
 }
 
-// Setup event handlers for category changes
+// Setup event handlers for category changes (called ONCE on init)
 function setupCategoryChangeHandlers() {
     // Use event delegation on table body
     const tableBody = document.getElementById('expenseTableBody');
@@ -498,6 +502,48 @@ function setupCategoryChangeHandlers() {
                 showNotification('Error', 'Failed to connect to the server. Please try again.', false);
                 console.error('Error:', error);
                 button.textContent = '💾';
+                button.disabled = false;
+            });
+        }
+
+        // Handle confirm button click
+        if (e.target.classList.contains('btn-confirm-category')) {
+            const button = e.target;
+            const expenseId = button.getAttribute('data-expense-id');
+            const category = button.getAttribute('data-category');
+
+            // Disable button during confirmation
+            button.disabled = true;
+            button.textContent = '⏳';
+
+            // Call API to confirm category
+            fetch(`${API_BASE_URL}/api/confirm-category`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    expense_id: parseInt(expenseId),
+                    category: category  // Same category, just confirming
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification('Success', 'Category confirmed! Confidence set to 100%', true);
+
+                    // Reload expenses to reflect changes (expense should disappear from filtered view)
+                    loadExpenses();
+                } else {
+                    showNotification('Error', data.error || 'Failed to confirm category.', false);
+                    button.textContent = '✓ Confirm';
+                    button.disabled = false;
+                }
+            })
+            .catch(error => {
+                showNotification('Error', 'Failed to connect to the server. Please try again.', false);
+                console.error('Error:', error);
+                button.textContent = '✓ Confirm';
                 button.disabled = false;
             });
         }
@@ -701,4 +747,5 @@ document.addEventListener('DOMContentLoaded', function() {
     loadCategories();
     initExpenseRecording();
     initReportRecording();
+    setupCategoryChangeHandlers();  // Set up event listeners ONCE on init
 });
