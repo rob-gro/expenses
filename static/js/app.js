@@ -32,6 +32,17 @@ let reportRecordedBlob;
 // Initialize Bootstrap toast
 const toast = new bootstrap.Toast(expenseToast);
 
+// Helper function to determine badge color class based on confidence
+function getConfidenceBadgeClass(confidence) {
+    if (confidence >= 0.80) {
+        return 'bg-success';  // Green for high confidence
+    } else if (confidence >= 0.60) {
+        return 'bg-warning';  // Yellow for medium confidence
+    } else {
+        return 'bg-danger';   // Red for low confidence
+    }
+}
+
 // Function to load categories from server
 function loadCategories() {
     console.log("Starting category loading...");
@@ -351,6 +362,11 @@ function loadExpenses(page = 1) {
                                 <select class="form-select form-select-sm category-select" data-expense-id="${expense.id}" data-original-category="${expense.category || 'Other'}" style="max-width: 150px;">
                                     <option value="${expense.category || 'Other'}" selected>${expense.category || 'Other'}</option>
                                 </select>
+                                ${expense.confidence_score !== null && expense.confidence_score !== undefined ? `
+                                    <span class="badge ${getConfidenceBadgeClass(expense.confidence_score)}" title="Model confidence score">
+                                        ${Math.round(expense.confidence_score * 100)}%
+                                    </span>
+                                ` : ''}
                                 <button class="btn btn-sm btn-success btn-save-category" data-expense-id="${expense.id}" style="display: none;" title="Save category">
                                     💾
                                 </button>
