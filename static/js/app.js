@@ -314,7 +314,7 @@ function loadExpenses(page = 1) {
     const needsReview = document.getElementById('needsReviewFilter').checked;
 
     // Show loading state
-    tableBody.innerHTML = '<tr><td colspan="5" class="text-center">Loading expenses...</td></tr>';
+    tableBody.innerHTML = '<tr><td colspan="6" class="text-center">Loading expenses...</td></tr>';
 
     // Fetch expenses from server
     let url = `${API_BASE_URL}/api/view-expenses?page=${page}&per_page=10`;
@@ -352,11 +352,30 @@ function loadExpenses(page = 1) {
                     }
 
                     row.setAttribute('style', borderStyle);
+                    row.setAttribute('data-expense-id', expense.id);
+                    row.setAttribute('data-mode', 'view');
+                    row.setAttribute('data-original-date', expense.date.split('T')[0]);
+                    row.setAttribute('data-original-amount', expense.amount);
+                    row.setAttribute('data-original-vendor', expense.vendor || '');
+                    row.setAttribute('data-original-description', expense.description || '');
 
                     row.innerHTML = `
-                        <td>${formattedDate}</td>
-                        <td>£${parseFloat(expense.amount).toFixed(2)}</td>
-                        <td>${expense.vendor || 'Unknown'}</td>
+                        <td class="expense-date">
+                            <span class="date-display">${formattedDate}</span>
+                            <input type="date" class="form-control form-control-sm date-edit" value="${expense.date.split('T')[0]}" style="display: none;">
+                        </td>
+                        <td class="expense-amount">
+                            <span class="amount-display">£${parseFloat(expense.amount).toFixed(2)}</span>
+                            <input type="number" step="0.01" class="form-control form-control-sm amount-edit" value="${expense.amount}" style="display: none; max-width: 100px;">
+                        </td>
+                        <td class="expense-vendor">
+                            <span class="vendor-display">${expense.vendor || 'Unknown'}</span>
+                            <input type="text" class="form-control form-control-sm vendor-edit" value="${expense.vendor || ''}" style="display: none;">
+                        </td>
+                        <td class="expense-description">
+                            <span class="description-display">${expense.description || ''}</span>
+                            <textarea class="form-control form-control-sm description-edit" rows="1" style="display: none;">${expense.description || ''}</textarea>
+                        </td>
                         <td>
                             <div class="d-flex align-items-center gap-2">
                                 <select class="form-select form-select-sm category-select" data-expense-id="${expense.id}" data-original-category="${expense.category || 'Other'}" style="max-width: 150px;">
@@ -377,7 +396,20 @@ function loadExpenses(page = 1) {
                                 ` : ''}
                             </div>
                         </td>
-                        <td>${expense.description || ''}</td>
+                        <td class="expense-actions">
+                            <button class="btn btn-sm btn-outline-secondary btn-edit-expense" data-expense-id="${expense.id}" title="Edit expense">
+                                ✏️
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger btn-delete-expense" data-expense-id="${expense.id}" title="Delete expense">
+                                🗑️
+                            </button>
+                            <button class="btn btn-sm btn-success btn-save-all" data-expense-id="${expense.id}" style="display: none;" title="Save all changes">
+                                💾 Save
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger btn-cancel-edit" data-expense-id="${expense.id}" style="display: none;" title="Cancel editing">
+                                ❌
+                            </button>
+                        </td>
                     `;
 
                     tableBody.appendChild(row);
@@ -398,12 +430,12 @@ function loadExpenses(page = 1) {
                     badge.style.display = 'none';
                 }
             } else {
-                tableBody.innerHTML = '<tr><td colspan="5" class="text-center">No expenses found</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="6" class="text-center">No expenses found</td></tr>';
                 pagination.innerHTML = '';
             }
         })
         .catch(error => {
-            tableBody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error loading expenses</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Error loading expenses</td></tr>';
             console.error('Error:', error);
         });
 }
@@ -563,6 +595,130 @@ function setupCategoryChangeHandlers() {
                 button.disabled = false;
             });
         }
+
+        // Handle Delete button - delete expense with confirmation
+        if (e.target.classList.contains('btn-delete-expense')) {
+            const button = e.target;
+            const expenseId = button.getAttribute('data-expense-id');
+            const row = tableBody.querySelector(`tr[data-expense-id="${expenseId}"]`);
+
+            // Get expense details for confirmation
+            const date = row.querySelector('.date-display').textContent;
+            const amount = row.querySelector('.amount-display').textContent;
+            const vendor = row.querySelector('.vendor-display').textContent;
+
+            // Confirm deletion
+            if (!confirm(`Delete expense?\n\nDate: ${date}\nAmount: ${amount}\nVendor: ${vendor}\n\nThis action cannot be undone.`)) {
+                return;
+            }
+
+            // Disable button during delete
+            button.disabled = true;
+            button.textContent = '⏳';
+
+            // Call API
+            fetch(`${API_BASE_URL}/api/delete-expense`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    expense_id: parseInt(expenseId)
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification('Success', 'Expense deleted successfully!', true);
+
+                    // Reload expenses to show updated list
+                    loadExpenses();
+                } else {
+                    showNotification('Error', data.error || 'Failed to delete expense.', false);
+                    button.disabled = false;
+                    button.textContent = '🗑️';
+                }
+            })
+            .catch(error => {
+                showNotification('Error', 'Failed to connect to the server.', false);
+                console.error('Error:', error);
+                button.disabled = false;
+                button.textContent = '🗑️';
+            });
+        }
+
+        // Handle Edit button - switch to edit mode
+        if (e.target.classList.contains('btn-edit-expense')) {
+            const button = e.target;
+            const expenseId = button.getAttribute('data-expense-id');
+            const row = tableBody.querySelector(`tr[data-expense-id="${expenseId}"]`);
+
+            switchToEditMode(row);
+        }
+
+        // Handle Cancel button - revert changes
+        if (e.target.classList.contains('btn-cancel-edit')) {
+            const button = e.target;
+            const expenseId = button.getAttribute('data-expense-id');
+            const row = tableBody.querySelector(`tr[data-expense-id="${expenseId}"]`);
+
+            switchToViewMode(row);
+        }
+
+        // Handle Save All button - update entire expense
+        if (e.target.classList.contains('btn-save-all')) {
+            const button = e.target;
+            const expenseId = button.getAttribute('data-expense-id');
+            const row = tableBody.querySelector(`tr[data-expense-id="${expenseId}"]`);
+
+            // Gather all edited values
+            const updatedData = {
+                expense_id: parseInt(expenseId),
+                date: row.querySelector('.date-edit').value,
+                amount: parseFloat(row.querySelector('.amount-edit').value),
+                vendor: row.querySelector('.vendor-edit').value,
+                description: row.querySelector('.description-edit').value,
+                category: row.querySelector('.category-select').value
+            };
+
+            // Validate
+            if (!updatedData.date || !updatedData.amount || updatedData.amount <= 0) {
+                showNotification('Error', 'Date and valid amount are required', false);
+                return;
+            }
+
+            // Disable buttons during save
+            button.disabled = true;
+            button.textContent = '⏳ Saving...';
+
+            // Call API
+            fetch(`${API_BASE_URL}/api/update-expense`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(updatedData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification('Success', 'Expense updated successfully!', true);
+
+                    // Reload expenses to show updated data
+                    loadExpenses();
+                } else {
+                    showNotification('Error', data.error || 'Failed to update expense.', false);
+                    button.disabled = false;
+                    button.textContent = '💾 Save';
+                }
+            })
+            .catch(error => {
+                showNotification('Error', 'Failed to connect to the server.', false);
+                console.error('Error:', error);
+                button.disabled = false;
+                button.textContent = '💾 Save';
+            });
+        }
     });
 }
 
@@ -631,6 +787,67 @@ function generatePagination(paginationElement, currentPage, totalPages) {
 
     nextItem.appendChild(nextLink);
     paginationElement.appendChild(nextItem);
+}
+
+// Helper: Switch row to edit mode
+function switchToEditMode(row) {
+    row.setAttribute('data-mode', 'edit');
+
+    // Hide display spans, show input fields
+    row.querySelectorAll('.date-display, .amount-display, .vendor-display, .description-display').forEach(el => {
+        el.style.display = 'none';
+    });
+    row.querySelectorAll('.date-edit, .amount-edit, .vendor-edit, .description-edit').forEach(el => {
+        el.style.display = 'inline-block';
+    });
+
+    // Hide Edit button, show Save/Cancel
+    row.querySelector('.btn-edit-expense').style.display = 'none';
+    row.querySelector('.btn-save-all').style.display = 'inline-block';
+    row.querySelector('.btn-cancel-edit').style.display = 'inline-block';
+
+    // Hide Confirm button during edit (if exists)
+    const confirmBtn = row.querySelector('.btn-confirm-category');
+    if (confirmBtn) {
+        confirmBtn.style.display = 'none';
+    }
+}
+
+// Helper: Switch row to view mode
+function switchToViewMode(row) {
+    row.setAttribute('data-mode', 'view');
+
+    // Revert to original values
+    const originalDate = row.getAttribute('data-original-date');
+    const originalAmount = row.getAttribute('data-original-amount');
+    const originalVendor = row.getAttribute('data-original-vendor');
+    const originalDescription = row.getAttribute('data-original-description');
+    const originalCategory = row.querySelector('.category-select').getAttribute('data-original-category');
+
+    row.querySelector('.date-edit').value = originalDate;
+    row.querySelector('.amount-edit').value = originalAmount;
+    row.querySelector('.vendor-edit').value = originalVendor;
+    row.querySelector('.description-edit').value = originalDescription;
+    row.querySelector('.category-select').value = originalCategory;
+
+    // Show display spans, hide input fields
+    row.querySelectorAll('.date-display, .amount-display, .vendor-display, .description-display').forEach(el => {
+        el.style.display = 'inline-block';
+    });
+    row.querySelectorAll('.date-edit, .amount-edit, .vendor-edit, .description-edit').forEach(el => {
+        el.style.display = 'none';
+    });
+
+    // Show Edit button, hide Save/Cancel
+    row.querySelector('.btn-edit-expense').style.display = 'inline-block';
+    row.querySelector('.btn-save-all').style.display = 'none';
+    row.querySelector('.btn-cancel-edit').style.display = 'none';
+
+    // Show Confirm button again (if exists)
+    const confirmBtn = row.querySelector('.btn-confirm-category');
+    if (confirmBtn) {
+        confirmBtn.style.display = 'inline-block';
+    }
 }
 
 // Handle view tab activation
@@ -758,9 +975,29 @@ document.getElementById('manualExpenseForm').addEventListener('submit', function
     });
 });
 
+// Load needs review count for badge
+function loadNeedsReviewCount() {
+    // Fetch just the count without loading full table
+    fetch(`${API_BASE_URL}/api/view-expenses?page=1&per_page=1`)
+        .then(response => response.json())
+        .then(data => {
+            const badge = document.getElementById('needs-review-badge');
+            if (data.needs_review_count > 0) {
+                badge.textContent = data.needs_review_count;
+                badge.style.display = 'inline-block';
+            } else {
+                badge.style.display = 'none';
+            }
+        })
+        .catch(error => {
+            console.error('Error loading needs review count:', error);
+        });
+}
+
 // Initialization when document loads
 document.addEventListener('DOMContentLoaded', function() {
     loadCategories();
+    loadNeedsReviewCount();  // Load badge count immediately
     initExpenseRecording();
     initReportRecording();
     setupCategoryChangeHandlers();  // Set up event listeners ONCE on init

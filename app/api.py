@@ -211,6 +211,89 @@ def confirm_category():
         return jsonify({"error": f"Failed to confirm category: {str(e)}"}), 500
 
 
+@api_bp.route('/update-expense', methods=['PATCH'])
+def update_expense():
+    """Update expense fields (amount, vendor, description, date, category)"""
+    try:
+        data = request.json
+        expense_id = data.get('expense_id')
+
+        if not expense_id:
+            return jsonify({"success": False, "error": "Missing expense_id"}), 400
+
+        # Build update dict with only provided fields
+        update_fields = {}
+
+        # Validate and add date
+        if 'date' in data:
+            try:
+                update_fields['date'] = datetime.datetime.strptime(data['date'], '%Y-%m-%d')
+            except ValueError:
+                return jsonify({"success": False, "error": "Invalid date format"}), 400
+
+        # Validate and add amount
+        if 'amount' in data:
+            try:
+                amount = float(data['amount'])
+                if amount <= 0:
+                    return jsonify({"success": False, "error": "Amount must be positive"}), 400
+                update_fields['amount'] = amount
+            except ValueError:
+                return jsonify({"success": False, "error": "Invalid amount"}), 400
+
+        # Add vendor
+        if 'vendor' in data:
+            update_fields['vendor'] = data['vendor'].strip()
+
+        # Add description
+        if 'description' in data:
+            update_fields['description'] = data['description'].strip()
+
+        # Add category
+        if 'category' in data:
+            update_fields['category'] = data['category'].strip()
+
+        if not update_fields:
+            return jsonify({"success": False, "error": "No fields to update"}), 400
+
+        # Update in database
+        success = db_manager.update_expense(expense_id, **update_fields)
+
+        if success:
+            logger.info(f"Updated expense {expense_id}: {update_fields}")
+            return jsonify({"success": True, "message": "Expense updated successfully"})
+        else:
+            return jsonify({"success": False, "error": "Expense not found"}), 404
+
+    except Exception as e:
+        logger.error(f"Error updating expense: {str(e)}", exc_info=True)
+        return jsonify({"success": False, "error": f"Failed to update expense: {str(e)}"}), 500
+
+
+@api_bp.route('/delete-expense', methods=['DELETE'])
+def delete_expense():
+    """Delete an expense record"""
+    try:
+        data = request.json
+        expense_id = data.get('expense_id')
+
+        if not expense_id:
+            return jsonify({"success": False, "error": "Missing expense_id"}), 400
+
+        # Delete from database
+        success = db_manager.delete_expense(expense_id)
+
+        if success:
+            logger.info(f"Deleted expense {expense_id}")
+            return jsonify({"success": True, "message": "Expense deleted successfully"})
+        else:
+            return jsonify({"success": False, "error": "Expense not found"}), 404
+
+    except Exception as e:
+        logger.error(f"Error deleting expense: {str(e)}", exc_info=True)
+        return jsonify({"success": False, "error": f"Failed to delete expense: {str(e)}"}), 500
+
+
 @api_bp.route('/train-expense-model', methods=['POST'])
 def train_expense_model():
     """Admin endpoint to train expense categorization model (async)"""
