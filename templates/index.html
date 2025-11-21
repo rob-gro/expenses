@@ -30,6 +30,9 @@
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="categories-tab" data-bs-toggle="tab" data-bs-target="#categories" type="button" role="tab" aria-controls="categories" aria-selected="false">Categories</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
                         <button class="nav-link" id="report-tab" data-bs-toggle="tab" data-bs-target="#report" type="button" role="tab" aria-controls="report" aria-selected="false">Reports</button>
                     </li>
                     <li class="nav-item" role="presentation">
@@ -163,6 +166,50 @@
                         </div>
                     </div>
 
+                    <!-- Categories Tab -->
+                    <div class="tab-pane fade" id="categories" role="tabpanel" aria-labelledby="categories-tab">
+                        <div class="row justify-content-center">
+                            <div class="col-lg-8 col-xl-6">
+                                <h2 class="mb-4">Manage Categories</h2>
+
+                                <!-- Add New Category Form -->
+                                <div class="card mb-4">
+                                    <div class="card-header">
+                                        Add New Category
+                                    </div>
+                                    <div class="card-body">
+                                        <form id="addCategoryForm" class="row g-3">
+                                            <div class="col-8">
+                                                <input type="text" class="form-control" id="newCategoryName" placeholder="Enter category name" maxlength="100" required>
+                                            </div>
+                                            <div class="col-4">
+                                                <button type="submit" class="btn btn-primary w-100">Add</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+
+                                <!-- Existing Categories -->
+                                <div class="card">
+                                    <div class="card-header">
+                                        Existing Categories
+                                    </div>
+                                    <div class="card-body">
+                                        <div id="categoriesList" class="list-group">
+                                            <!-- Categories will be loaded here dynamically -->
+                                            <div class="text-center text-muted py-3">
+                                                <div class="spinner-border spinner-border-sm" role="status">
+                                                    <span class="visually-hidden">Loading...</span>
+                                                </div>
+                                                Loading categories...
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Reports Tab -->
                     <div class="tab-pane fade" id="report" role="tabpanel" aria-labelledby="report-tab">
                         <div class="card">
@@ -171,14 +218,26 @@
                             </div>
                             <div class="card-body">
                                 <form id="reportForm">
-                                    <div class="row mb-3">
-                                        <div class="col-md-6">
-                                            <label for="reportCategory" class="form-label">Category</label>
-                                            <select class="form-select" id="reportCategory">
-                                                <!-- Kategorie będą ładowane dynamicznie -->
-                                                <option value="">All Categories</option>
-                                            </select>
+                                    <div class="mb-3">
+                                        <label class="form-label">Categories <span class="text-danger">*</span></label>
+                                        <div class="category-checkboxes-container border rounded p-3 bg-light">
+                                            <!-- Select All Checkbox -->
+                                            <div class="form-check mb-2">
+                                                <input class="form-check-input" type="checkbox" id="selectAllCategories">
+                                                <label class="form-check-label fw-bold" for="selectAllCategories">
+                                                    Select All / Deselect All
+                                                </label>
+                                            </div>
+                                            <hr class="my-2">
+                                            <!-- Category Checkboxes Grid (loaded dynamically) -->
+                                            <div id="categoryCheckboxGrid" class="row row-cols-2 row-cols-md-3 g-2">
+                                                <!-- Will be populated by JavaScript -->
+                                            </div>
                                         </div>
+                                        <small class="text-muted">Select at least one category</small>
+                                    </div>
+
+                                    <div class="row mb-3">
                                         <div class="col-md-6">
                                             <label for="reportGroupBy" class="form-label">Group By</label>
                                             <select class="form-select" id="reportGroupBy">
@@ -188,6 +247,7 @@
                                                 <option value="year">Year</option>
                                             </select>
                                         </div>
+                                        <div class="col-md-6"></div>
                                     </div>
 
                                     <div class="row mb-3">

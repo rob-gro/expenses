@@ -662,11 +662,25 @@ class EmailTemplates:
         Returns:
             tuple: (subject, html_body)
         """
-        category = params.get('category', 'All categories')
+        # Handle both old 'category' (single) and new 'categories' (list)
+        categories = params.get('categories')
+        if not categories:
+            categories = params.get('category')
+            if categories:
+                categories = [categories]
+
+        # Format for subject (count or "All categories")
+        if categories and len(categories) > 0:
+            subject_category = f"{len(categories)} {'category' if len(categories) == 1 else 'categories'}"
+            body_category = ', '.join(categories)
+        else:
+            subject_category = "All categories"
+            body_category = "All categories"
+
         start_date = params.get('start_date', 'Beginning')
         end_date = params.get('end_date', 'Present')
 
-        subject = f"Expense Report Generated - {category}"
+        subject = f"Expense Report Generated - {subject_category}"
 
         html = f"""
         <html>
@@ -686,7 +700,7 @@ class EmailTemplates:
                     </tr>
                     <tr>
                         <td>Category:</td>
-                        <td>{category}</td>
+                        <td>{body_category}</td>
                     </tr>
                     <tr>
                         <td>Date Range:</td>

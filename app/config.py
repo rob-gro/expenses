@@ -50,6 +50,7 @@ class Config:
 
     # Predefined expense categories
     DEFAULT_CATEGORIES = [
+        'Uncategorized',
         'Fuel',
         'Cosmetics',
         'Groceries',

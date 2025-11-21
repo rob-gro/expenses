@@ -85,10 +85,17 @@ class ReportService:
         Returns:
             Dict with generation result
         """
+        # Backward compatibility: support both 'category' (old) and 'categories' (new)
+        categories = report_params.get('categories')
+        if not categories:
+            # Convert single category to list for backward compatibility
+            category = report_params.get('category')
+            categories = [category] if category else None
+
         # Generate the report
         report_file, report_type, format_type = generate_report(
             self.db_manager,
-            report_params.get('category'),
+            categories,
             report_params.get('start_date'),
             report_params.get('end_date'),
             report_params.get('group_by', 'month'),

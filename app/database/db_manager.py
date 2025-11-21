@@ -550,6 +550,138 @@ class DBManager:
             logger.error(f"Error adding category: {str(e)}", exc_info=True)
             return False, f"Database error: {str(e)}"
 
+    def update_category(self, category_id, new_name):
+        """
+        Update category name
+        Returns (success: bool, message: str)
+        """
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    # Check if category exists
+                    cursor.execute(
+                        "SELECT name FROM categories WHERE id = %s",
+                        (category_id,)
+                    )
+                    category = cursor.fetchone()
+
+                    if not category:
+                        return False, f"Category with ID {category_id} not found"
+
+                    old_name = category['name']
+
+                    # Prevent renaming "Uncategorized"
+                    if old_name == 'Uncategorized':
+                        return False, "Cannot rename 'Uncategorized' category"
+
+                    # Check if new name already exists (case-insensitive)
+                    cursor.execute(
+                        "SELECT id, name FROM categories WHERE LOWER(name) = LOWER(%s) AND id != %s",
+                        (new_name, category_id)
+                    )
+                    existing = cursor.fetchone()
+
+                    if existing:
+                        return False, f"Category '{existing['name']}' already exists"
+
+                    # Update category name
+                    cursor.execute(
+                        "UPDATE categories SET name = %s WHERE id = %s",
+                        (new_name, category_id)
+                    )
+
+                    # Update all expenses with the new category name
+                    cursor.execute(
+                        "UPDATE expenses SET category = %s WHERE category = %s",
+                        (new_name, old_name)
+                    )
+
+                    conn.commit()
+                    logger.info(f"Updated category from '{old_name}' to '{new_name}'")
+                    return True, f"Successfully updated category to '{new_name}'"
+
+        except Exception as e:
+            logger.error(f"Error updating category: {str(e)}", exc_info=True)
+            return False, f"Database error: {str(e)}"
+
+    def delete_category(self, category_id):
+        """
+        Delete category and move all expenses to 'Uncategorized'
+        Returns (success: bool, message: str, moved_count: int)
+        """
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    # Check if category exists
+                    cursor.execute(
+                        "SELECT name FROM categories WHERE id = %s",
+                        (category_id,)
+                    )
+                    category = cursor.fetchone()
+
+                    if not category:
+                        return False, f"Category with ID {category_id} not found", 0
+
+                    category_name = category['name']
+
+                    # Prevent deleting "Uncategorized"
+                    if category_name == 'Uncategorized':
+                        return False, "Cannot delete 'Uncategorized' category", 0
+
+                    # Count expenses in this category
+                    cursor.execute(
+                        "SELECT COUNT(*) as count FROM expenses WHERE category = %s",
+                        (category_name,)
+                    )
+                    expense_count = cursor.fetchone()['count']
+
+                    # Move all expenses to "Uncategorized"
+                    if expense_count > 0:
+                        cursor.execute(
+                            "UPDATE expenses SET category = 'Uncategorized' WHERE category = %s",
+                            (category_name,)
+                        )
+
+                    # Delete the category
+                    cursor.execute(
+                        "DELETE FROM categories WHERE id = %s",
+                        (category_id,)
+                    )
+
+                    conn.commit()
+                    logger.info(f"Deleted category '{category_name}', moved {expense_count} expenses to 'Uncategorized'")
+                    return True, f"Successfully deleted category '{category_name}'", expense_count
+
+        except Exception as e:
+            logger.error(f"Error deleting category: {str(e)}", exc_info=True)
+            return False, f"Database error: {str(e)}", 0
+
+    def get_categories_with_counts(self):
+        """
+        Get all categories with expense counts
+        Returns list of dicts with category info
+        """
+        try:
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT
+                            c.id,
+                            c.name,
+                            COUNT(e.id) as expense_count
+                        FROM categories c
+                        LEFT JOIN expenses e ON c.name = e.category
+                        GROUP BY c.id, c.name
+                        ORDER BY c.name
+                    """)
+
+                    categories = cursor.fetchall()
+                    return categories
+
+        except Exception as e:
+            logger.error(f"Error getting categories with counts: {str(e)}", exc_info=True)
+            return []
+
     def add_report(self, report_type, parameters, file_path):
         """
         Add a report record to the database
@@ -579,7 +711,7 @@ class DBManager:
             logger.error(f"Error adding report: {str(e)}", exc_info=True)
             raise
 
-    def get_expense_data_for_report(self, category=None, start_date=None, end_date=None, group_by='month'):
+    def get_expense_data_for_report(self, categories=None, start_date=None, end_date=None, group_by='month'):
         """
         Get expense data for report generation with grouping options
         Returns a list of expenses grouped by the specified period
@@ -591,9 +723,11 @@ class DBManager:
                     where_clauses = []
                     params = []
 
-                    if category:
-                        where_clauses.append("category = %s")
-                        params.append(category)
+                    if categories and len(categories) > 0:
+                        # Build IN clause with correct number of placeholders
+                        placeholders = ','.join(['%s'] * len(categories))
+                        where_clauses.append(f"category IN ({placeholders})")
+                        params.extend(categories)
 
                     if start_date:
                         where_clauses.append("date >= %s")

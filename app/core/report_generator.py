@@ -11,6 +11,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
 from app.database.db_manager import DBManager
 from app.config import Config
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
@@ -23,7 +24,44 @@ logger = logging.getLogger(__name__)
 # Set seaborn style for better visualizations
 sns.set(style="whitegrid")
 
-def generate_report(db_manager, category=None, start_date=None, end_date=None,
+
+class NumberedCanvas(canvas.Canvas):
+    """Custom canvas class to add page numbers and footer to each page"""
+    def __init__(self, *args, **kwargs):
+        canvas.Canvas.__init__(self, *args, **kwargs)
+        self._saved_page_states = []
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        """Add page numbers and footer to all pages"""
+        num_pages = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self.draw_footer(num_pages)
+            canvas.Canvas.showPage(self)
+        canvas.Canvas.save(self)
+
+    def draw_footer(self, page_count):
+        """Draw footer with copyright and page numbers"""
+        # Draw separator line
+        self.setStrokeColor(colors.HexColor('#dee2e6'))
+        self.setLineWidth(1)
+        self.line(36, 50, A4[0] - 36, 50)
+
+        # Draw copyright on the left
+        self.setFont('Helvetica', 8)
+        self.setFillColor(colors.gray)
+        self.drawString(36, 36, "© Expense Tracker")
+
+        # Draw page numbers on the right
+        page_text = f"{self._pageNumber}/{page_count}"
+        self.drawRightString(A4[0] - 36, 36, page_text)
+
+
+def generate_report(db_manager, categories=None, start_date=None, end_date=None,
                     group_by='month', format_type='excel'):
     """
     Generate expense report based on parameters
@@ -32,7 +70,7 @@ def generate_report(db_manager, category=None, start_date=None, end_date=None,
     try:
         # Get report data from database
         report_data = db_manager.get_expense_data_for_report(
-            category=category,
+            categories=categories,
             start_date=start_date,
             end_date=end_date,
             group_by=group_by
@@ -42,7 +80,13 @@ def generate_report(db_manager, category=None, start_date=None, end_date=None,
         report_name = f"expense_report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         # Determine report type
-        report_type = "Category_Report" if category else "Full_Expense_Report"
+        if categories and len(categories) > 0:
+            category_names = "_".join(categories[:3])  # Max 3 categories in filename
+            if len(categories) > 3:
+                category_names += "_and_more"
+            report_type = f"Category_Report_{category_names}"
+        else:
+            report_type = "Full_Expense_Report"
         if start_date and end_date:
             report_type += f"_{start_date}_to_{end_date}"
 
@@ -66,18 +110,18 @@ def generate_report(db_manager, category=None, start_date=None, end_date=None,
             detailed_df = pd.DataFrame(columns=['id', 'date', 'amount', 'vendor', 'category', 'description'])
 
         # Create visualizations
-        chart_paths = create_visualizations(grouped_df, report_name, category)
+        chart_paths = create_visualizations(grouped_df, report_name, categories)
 
         # Generate report based on format type
         if format_type.lower() == 'excel':
-            file_path = generate_excel_report(grouped_df, detailed_df, chart_paths, report_name, category)
+            file_path = generate_excel_report(grouped_df, detailed_df, chart_paths, report_name, categories)
         elif format_type.lower() == 'csv':
             file_path = generate_csv_report(grouped_df, detailed_df, report_name)
         elif format_type.lower() == 'pdf':
-            file_path = generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, category)
+            file_path = generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, categories)
         else:
             # Default to Excel
-            file_path = generate_excel_report(grouped_df, detailed_df, chart_paths, report_name, category)
+            file_path = generate_excel_report(grouped_df, detailed_df, chart_paths, report_name, categories)
             format_type = 'excel'
 
         logger.info(f"Report generated successfully: {file_path}")
@@ -88,7 +132,7 @@ def generate_report(db_manager, category=None, start_date=None, end_date=None,
         raise
 
 
-def create_visualizations(df, report_name, category=None):
+def create_visualizations(df, report_name, categories=None):
     """Create visualizations for the report and save them to files"""
     chart_paths = {}
 
@@ -115,7 +159,7 @@ def create_visualizations(df, report_name, category=None):
                 logger.info(f"Total amount sum: {df['total_amount'].sum()}")
 
                 # If we have multiple categories, create a grouped line chart
-                if category is None:
+                if categories is None or len(categories) == 0:
                     pivot_df = df.pivot(index='period_label', columns='category', values='total_amount')
                     logger.info(f"Pivot table shape: {pivot_df.shape if not pivot_df.empty else 'Empty'}")
 
@@ -250,7 +294,7 @@ def create_visualizations(df, report_name, category=None):
                     ax = fig.add_subplot(111)
 
                     # Create a pivot table with periods as index and categories as columns
-                    if category is None:
+                    if categories is None or len(categories) == 0:
                         pivot_df = df.pivot_table(
                             index='period_label',
                             columns='category',
@@ -304,7 +348,7 @@ def create_visualizations(df, report_name, category=None):
     except Exception as e:
         logger.error(f"Error creating visualizations: {str(e)}", exc_info=True)
         return {}
-def generate_excel_report(grouped_df, detailed_df, chart_paths, report_name, category=None):
+def generate_excel_report(grouped_df, detailed_df, chart_paths, report_name, categories=None):
     """Generate Excel report with multiple sheets and embedded charts"""
     try:
         config = Config()
@@ -314,8 +358,21 @@ def generate_excel_report(grouped_df, detailed_df, chart_paths, report_name, cat
 
         # Create a Pandas Excel writer using XlsxWriter engine
         with pd.ExcelWriter(report_path, engine='xlsxwriter') as writer:
-            # Write summary sheet
-            grouped_df.to_excel(writer, sheet_name='Summary', index=False)
+            # Calculate category totals
+            if not grouped_df.empty and 'category' in grouped_df.columns and 'total_amount' in grouped_df.columns:
+                category_totals = grouped_df.groupby('category')['total_amount'].sum().reset_index()
+                category_totals.columns = ['Category', 'Total Amount']
+                category_totals = category_totals.sort_values('Total Amount', ascending=False)
+
+                # Write category totals to Summary sheet starting at row 2
+                category_totals.to_excel(writer, sheet_name='Summary', index=False, startrow=2)
+
+                # Write grouped summary data below category totals (with gap)
+                start_row = 2 + len(category_totals) + 3  # Header + data + 2 empty rows gap
+                grouped_df.to_excel(writer, sheet_name='Summary', index=False, startrow=start_row)
+            else:
+                # If no category data, just write grouped data
+                grouped_df.to_excel(writer, sheet_name='Summary', index=False, startrow=2)
 
             # Write detailed data sheet
             detailed_df.to_excel(writer, sheet_name='Detailed Expenses', index=False)
@@ -340,10 +397,18 @@ def generate_excel_report(grouped_df, detailed_df, chart_paths, report_name, cat
 
             # Add title to summary sheet
             report_title = f"Expense Report"
-            if category:
-                report_title += f" - Category: {category}"
+            if categories and len(categories) > 0:
+                report_title += f" - Categories: {', '.join(categories)}"
 
             summary_worksheet.merge_range('A1:F1', report_title, title_format)
+
+            # Add section title for Category Totals if present
+            if not grouped_df.empty and 'category' in grouped_df.columns:
+                summary_worksheet.write('A2', 'Category Totals', header_format)
+
+                # Add section title for Expense Summary
+                summary_start_row = 2 + len(category_totals) + 3
+                summary_worksheet.write(summary_start_row - 1, 0, 'Expense Summary (by Period)', header_format)
 
             # Add charts to the Excel file if available
             if chart_paths:
@@ -365,10 +430,6 @@ def generate_excel_report(grouped_df, detailed_df, chart_paths, report_name, cat
                     # Move to next position (allow space for chart)
                     row_position += 20
 
-            # Format the summary sheet
-            for col_num, value in enumerate(grouped_df.columns.values):
-                summary_worksheet.write(1, col_num, value, header_format)
-
         return report_path
 
     except Exception as e:
@@ -384,13 +445,26 @@ def generate_csv_report(grouped_df, detailed_df, report_name):
         report_dir = os.path.join(config.REPORT_FOLDER, report_name)
         os.makedirs(report_dir, exist_ok=True)
 
+        # Calculate and save category totals
+        files_to_zip = []
+        if not grouped_df.empty and 'category' in grouped_df.columns and 'total_amount' in grouped_df.columns:
+            category_totals = grouped_df.groupby('category')['total_amount'].sum().reset_index()
+            category_totals.columns = ['Category', 'Total Amount']
+            category_totals = category_totals.sort_values('Total Amount', ascending=False)
+
+            category_totals_path = os.path.join(report_dir, f"{report_name}_category_totals.csv")
+            category_totals.to_csv(category_totals_path, index=False)
+            files_to_zip.append((category_totals_path, os.path.basename(category_totals_path)))
+
         # Save summary data
         summary_path = os.path.join(report_dir, f"{report_name}_summary.csv")
         grouped_df.to_csv(summary_path, index=False)
+        files_to_zip.append((summary_path, os.path.basename(summary_path)))
 
         # Save detailed data
         detailed_path = os.path.join(report_dir, f"{report_name}_detailed.csv")
         detailed_df.to_csv(detailed_path, index=False)
+        files_to_zip.append((detailed_path, os.path.basename(detailed_path)))
 
         # Create a simple README file explaining the CSV files
         readme_path = os.path.join(report_dir, "README.txt")
@@ -398,15 +472,20 @@ def generate_csv_report(grouped_df, detailed_df, report_name):
             f.write(f"Expense Report CSV Files\n")
             f.write(f"Generated on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
             f.write(f"Files included:\n")
-            f.write(f"1. {report_name}_summary.csv - Summarized expense data grouped by period\n")
-            f.write(f"2. {report_name}_detailed.csv - Detailed expense data with individual transactions\n")
+            if not grouped_df.empty and 'category' in grouped_df.columns:
+                f.write(f"1. {report_name}_category_totals.csv - Total expenses per category\n")
+                f.write(f"2. {report_name}_summary.csv - Summarized expense data grouped by period\n")
+                f.write(f"3. {report_name}_detailed.csv - Detailed expense data with individual transactions\n")
+            else:
+                f.write(f"1. {report_name}_summary.csv - Summarized expense data grouped by period\n")
+                f.write(f"2. {report_name}_detailed.csv - Detailed expense data with individual transactions\n")
+        files_to_zip.append((readme_path, os.path.basename(readme_path)))
 
         # Create a zip file containing all CSV files
         zip_path = os.path.join(config.REPORT_FOLDER, f"{report_name}.zip")
         with zipfile.ZipFile(zip_path, 'w') as zip_file:
-            zip_file.write(summary_path, os.path.basename(summary_path))
-            zip_file.write(detailed_path, os.path.basename(detailed_path))
-            zip_file.write(readme_path, os.path.basename(readme_path))
+            for file_path, archive_name in files_to_zip:
+                zip_file.write(file_path, archive_name)
 
         return zip_path
 
@@ -414,7 +493,7 @@ def generate_csv_report(grouped_df, detailed_df, report_name):
         logger.error(f"Error generating CSV report: {str(e)}", exc_info=True)
         raise
 
-def generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, category=None):
+def generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, categories=None):
     """Generate professional PDF report with data tables and charts"""
     try:
         config = Config()
@@ -430,31 +509,33 @@ def generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, categ
         # Define styles
         styles = getSampleStyleSheet()
 
-        # Create custom styles
+        # Create custom styles - Modern design
         title_style = ParagraphStyle(
             'Title',
             parent=styles['Title'],
-            fontSize=18,
+            fontSize=24,
             fontName='Helvetica-Bold',
-            textColor=colors.HexColor('#0056b3'),
-            spaceAfter=12
+            textColor=colors.HexColor('#1a1a2e'),
+            spaceAfter=6
         )
 
         heading_style = ParagraphStyle(
             'Heading',
             parent=styles['Heading2'],
-            fontSize=14,
+            fontSize=16,
             fontName='Helvetica-Bold',
-            textColor=colors.HexColor('#5c6ac4'),
-            spaceAfter=8
+            textColor=colors.HexColor('#16213e'),
+            spaceAfter=12,
+            spaceBefore=8
         )
 
         subheading_style = ParagraphStyle(
             'Subheading',
             parent=styles['Heading3'],
-            fontSize=12,
+            fontSize=13,
             fontName='Helvetica-Bold',
-            spaceAfter=6
+            textColor=colors.HexColor('#0f3460'),
+            spaceAfter=8
         )
 
         normal_style = ParagraphStyle(
@@ -475,39 +556,44 @@ def generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, categ
         # Content elements for the PDF
         elements = []
 
-        # Add header with date
-        header_data = [
-            ["EXPENSE REPORT", ""],
-            ["", f"Date: {datetime.datetime.now().strftime('%d.%m.%Y')}"]
-        ]
+        # Modern header with colored background
+        header_title = Paragraph("EXPENSE REPORT", ParagraphStyle(
+            'HeaderTitle',
+            parent=normal_style,
+            fontSize=20,
+            fontName='Helvetica-Bold',
+            textColor=colors.whitesmoke
+        ))
+        header_date = Paragraph(f"Generated: {datetime.datetime.now().strftime('%d %B %Y')}", ParagraphStyle(
+            'HeaderDate',
+            parent=normal_style,
+            fontSize=10,
+            fontName='Helvetica',
+            textColor=colors.whitesmoke,
+            alignment=2  # Right align
+        ))
 
-        header_table = Table(header_data, colWidths=[doc.width * 0.7, doc.width * 0.3])
+        header_data = [[header_title, header_date]]
+
+        header_table = Table(header_data, colWidths=[doc.width * 0.65, doc.width * 0.35])
         header_table.setStyle(TableStyle([
-            ('FONT', (0, 0), (0, 0), 'Helvetica-Bold'),
-            ('TEXTCOLOR', (0, 0), (0, 0), colors.HexColor('#0056b3')),
-            ('FONT', (1, 1), (1, 1), 'Helvetica'),
-            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
-            ('ALIGN', (1, 1), (1, 1), 'RIGHT'),
-            ('FONTSIZE', (0, 0), (0, 0), 16),
-            ('FONTSIZE', (1, 1), (1, 1), 10),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#475569')),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 16),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 16),
+            ('LEFTPADDING', (0, 0), (-1, -1), 12),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 12),
         ]))
 
         elements.append(header_table)
-        elements.append(Spacer(1, 12))
+        elements.append(Spacer(1, 20))
 
-        # Add separator line
-        separator = Table([['']], colWidths=[doc.width])
-        separator.setStyle(TableStyle([
-            ('LINEBELOW', (0, 0), (-1, -1), 1, colors.HexColor('#5c6ac4')),
-        ]))
-        elements.append(separator)
-        elements.append(Spacer(1, 12))
-
-        # Add report title
-        report_title = f"Expense Report"
-        if category:
-            report_title += f" - Category: {category}"
+        # Add report title with wrapping categories
+        if categories and len(categories) > 0:
+            cat_text = ', '.join(categories)
+            report_title = f"Expense Report - Categories: {cat_text}"
+        else:
+            report_title = "Expense Report"
         elements.append(Paragraph(report_title, title_style))
         elements.append(Spacer(1, 6))
 
@@ -546,26 +632,37 @@ def generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, categ
                     last_period = sorted_periods[-1]
                     period_text = f"{first_period} to {last_period}"
 
-            summary_text.append(["Period:", period_text])
-            summary_text.append(["Total Expenses:", f"£{total_amount:.2f}"])
-            summary_text.append(["Transaction Count:", f"{transaction_count}"])
-            if category:
-                summary_text.append(["Category:", f"{category}"])
+            # Create Paragraphs for wrapping text
+            summary_text.append([
+                Paragraph("<b>Period:</b>", normal_style),
+                Paragraph(period_text, normal_style)
+            ])
+            summary_text.append([
+                Paragraph("<b>Total Expenses:</b>", normal_style),
+                Paragraph(f"£{total_amount:.2f}", normal_style)
+            ])
+            summary_text.append([
+                Paragraph("<b>Transaction Count:</b>", normal_style),
+                Paragraph(f"{transaction_count}", normal_style)
+            ])
+            if categories and len(categories) > 0:
+                summary_text.append([
+                    Paragraph("<b>Categories:</b>", normal_style),
+                    Paragraph(f"{', '.join(categories)}", normal_style)
+                ])
         else:
-            summary_text.append(["No data available for the selected criteria", ""])
+            summary_text.append([Paragraph("No data available for the selected criteria", normal_style), ""])
 
-        summary_table = Table(summary_text, colWidths=[doc.width * 0.3, doc.width * 0.7])
+        summary_table = Table(summary_text, colWidths=[doc.width * 0.30, doc.width * 0.70])
         summary_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f1f5f9')),
-            ('FONT', (0, 0), (0, -1), 'Helvetica-Bold'),
-            ('FONT', (1, 0), (-1, -1), 'Helvetica'),
-            ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
-            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.white),
-            ('BOX', (0, 0), (-1, -1), 0.25, colors.white),
-            ('PADDING', (0, 0), (-1, -1), 8),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8f9fa')),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('INNERGRID', (0, 0), (-1, -1), 1, colors.HexColor('#dee2e6')),
+            ('BOX', (0, 0), (-1, -1), 1.5, colors.HexColor('#adb5bd')),
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            ('LEFTPADDING', (0, 0), (-1, -1), 12),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 12),
         ]))
 
         elements.append(summary_table)
@@ -591,6 +688,54 @@ def generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, categ
 
             elements.append(Spacer(1, 10))
 
+        # Add Category Totals section (sum per category across all periods)
+        if not grouped_df.empty and 'category' in grouped_df.columns and 'total_amount' in grouped_df.columns:
+            elements.append(Paragraph("Category Totals", heading_style))
+            elements.append(Spacer(1, 0.1 * inch))
+
+            # Calculate total per category
+            category_totals = grouped_df.groupby('category')['total_amount'].sum().reset_index()
+            category_totals.columns = ['Category', 'Total Amount']
+            category_totals = category_totals.sort_values('Total Amount', ascending=False)
+
+            # Format amounts with £ symbol
+            category_data = [['Category', 'Total Amount']]
+            for _, row in category_totals.iterrows():
+                category_data.append([row['Category'], f"£{row['Total Amount']:.2f}"])
+
+            # Add total row
+            grand_total = category_totals['Total Amount'].sum()
+            category_data.append(['TOTAL', f"£{grand_total:.2f}"])
+
+            # Create table with modern styling
+            category_table = Table(category_data, colWidths=[doc.width * 0.55, doc.width * 0.45])
+            category_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0f3460')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('FONTSIZE', (0, 1), (-1, -2), 10),
+                ('FONTSIZE', (0, -1), (-1, -1), 11),
+                ('TOPPADDING', (0, 0), (-1, 0), 14),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 14),
+                ('TOPPADDING', (0, 1), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 1), (-1, -1), 10),
+                ('LEFTPADDING', (0, 0), (-1, -1), 12),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#f8f9fa')]),
+                ('LINEABOVE', (0, -1), (-1, -1), 2.5, colors.HexColor('#0d9488')),
+                ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+                ('TEXTCOLOR', (0, -1), (-1, -1), colors.HexColor('#0d9488')),
+                ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#f0fdfa')),
+                ('TOPPADDING', (0, -1), (-1, -1), 12),
+                ('BOTTOMPADDING', (0, -1), (-1, -1), 12),
+            ]))
+
+            elements.append(category_table)
+            elements.append(Spacer(1, 20))
+
         # Add summary data
         elements.append(Paragraph("Expense Summary", heading_style))
         elements.append(Spacer(1, 0.1 * inch))
@@ -602,24 +747,43 @@ def generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, categ
             # Create table
             expense_table = Table(data)
 
-            # Style the table
+            # Modern table style
             table_style = TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#5c6ac4')),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#16213e')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
+                ('TOPPADDING', (0, 0), (-1, 0), 12),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
                 ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.HexColor('#212529')),
                 ('ALIGN', (0, 1), (-1, -1), 'CENTER'),
                 ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
                 ('FONTSIZE', (0, 1), (-1, -1), 9),
-                ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#eeeeee')),
+                ('TOPPADDING', (0, 1), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 0.75, colors.HexColor('#dee2e6')),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')])
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8f9fa')])
             ])
+
+            # Add thicker lines between different periods (months)
+            # Find the period column index
+            period_col_idx = None
+            for idx, col in enumerate(grouped_df.columns):
+                if 'period' in col.lower():
+                    period_col_idx = idx
+                    break
+
+            if period_col_idx is not None:
+                current_period = None
+                for row_idx, row in enumerate(grouped_df.values, start=1):  # Start from 1 (skip header)
+                    period_value = row[period_col_idx]
+                    if current_period is not None and period_value != current_period:
+                        # Add thicker line above this row to separate months
+                        table_style.add('LINEABOVE', (0, row_idx), (-1, row_idx), 2.5, colors.HexColor('#0d9488'))
+                    current_period = period_value
 
             # Apply the style to the table
             expense_table.setStyle(table_style)
@@ -644,24 +808,48 @@ def generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, categ
             # Create table
             detailed_table = Table(data)
 
-            # Style the table
+            # Modern detailed table style
             table_style = TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#5c6ac4')),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#16213e')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('TOPPADDING', (0, 0), (-1, 0), 10),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
                 ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.HexColor('#495057')),
                 ('ALIGN', (0, 1), (-1, -1), 'LEFT'),
                 ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
                 ('FONTSIZE', (0, 1), (-1, -1), 8),
-                ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#eeeeee')),
+                ('TOPPADDING', (0, 1), (-1, -1), 7),
+                ('BOTTOMPADDING', (0, 1), (-1, -1), 7),
+                ('GRID', (0, 0), (-1, -1), 0.75, colors.HexColor('#dee2e6')),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')])
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8f9fa')])
             ])
+
+            # Add thicker lines between different months
+            date_col_idx = None
+            for idx, col in enumerate(detailed_df.columns):
+                if 'date' in col.lower():
+                    date_col_idx = idx
+                    break
+
+            if date_col_idx is not None:
+                current_month = None
+                for row_idx, row in enumerate(detailed_df.values, start=1):
+                    date_value = row[date_col_idx]
+                    # Extract year-month from date
+                    if hasattr(date_value, 'strftime'):
+                        month_value = date_value.strftime('%Y-%m')
+                    else:
+                        month_value = str(date_value)[:7]  # Extract YYYY-MM
+
+                    if current_month is not None and month_value != current_month:
+                        # Add thicker teal line above this row
+                        table_style.add('LINEABOVE', (0, row_idx), (-1, row_idx), 2.5, colors.HexColor('#0d9488'))
+                    current_month = month_value
 
             # Apply the style to the table
             detailed_table.setStyle(table_style)
@@ -669,23 +857,8 @@ def generate_pdf_report(grouped_df, detailed_df, chart_paths, report_name, categ
         else:
             elements.append(Paragraph("No detailed data available for the selected criteria", normal_style))
 
-        elements.append(Spacer(1, inch))
-
-        # Add footer
-        footer_data = [[""], ["© Expense Tracker"]]
-        footer_table = Table(footer_data, colWidths=[doc.width])
-        footer_table.setStyle(TableStyle([
-            ('LINEABOVE', (0, 0), (-1, 0), 1, colors.HexColor('#5c6ac4')),
-            ('ALIGN', (0, 1), (-1, 1), 'CENTER'),
-            ('FONTSIZE', (0, 1), (-1, 1), 8),
-            ('TEXTCOLOR', (0, 1), (-1, 1), colors.gray),
-            ('FONTNAME', (0, 1), (-1, 1), 'Helvetica'),
-        ]))
-
-        elements.append(footer_table)
-
-        # Build the PDF document
-        doc.build(elements)
+        # Build the PDF document with custom canvas for page numbers
+        doc.build(elements, canvasmaker=NumberedCanvas)
 
         return pdf_path
 

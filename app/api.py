@@ -150,6 +150,93 @@ def get_categories():
         return jsonify({"error": f"Failed to fetch categories: {str(e)}"}), 500
 
 
+@api_bp.route('/categories-with-counts', methods=['GET'])
+def get_categories_with_counts():
+    """Get all categories with expense counts"""
+    try:
+        categories = db_manager.get_categories_with_counts()
+        return jsonify({
+            "success": True,
+            "categories": categories
+        })
+    except Exception as e:
+        logger.error(f"Error fetching categories with counts: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Failed to fetch categories: {str(e)}"}), 500
+
+
+@api_bp.route('/categories', methods=['POST'])
+def create_category():
+    """Create a new category"""
+    try:
+        data = request.json
+        category_name = data.get('name', '').strip()
+
+        if not category_name:
+            return jsonify({"success": False, "error": "Category name is required"}), 400
+
+        if len(category_name) > 100:
+            return jsonify({"success": False, "error": "Category name too long (max 100 characters)"}), 400
+
+        success, message = db_manager.add_category(category_name)
+
+        if success:
+            logger.info(f"Created category: {category_name}")
+            return jsonify({"success": True, "message": message})
+        else:
+            return jsonify({"success": False, "error": message}), 400
+
+    except Exception as e:
+        logger.error(f"Error creating category: {str(e)}", exc_info=True)
+        return jsonify({"success": False, "error": f"Failed to create category: {str(e)}"}), 500
+
+
+@api_bp.route('/categories/<int:category_id>', methods=['PATCH'])
+def update_category(category_id):
+    """Update category name"""
+    try:
+        data = request.json
+        new_name = data.get('name', '').strip()
+
+        if not new_name:
+            return jsonify({"success": False, "error": "Category name is required"}), 400
+
+        if len(new_name) > 100:
+            return jsonify({"success": False, "error": "Category name too long (max 100 characters)"}), 400
+
+        success, message = db_manager.update_category(category_id, new_name)
+
+        if success:
+            logger.info(f"Updated category {category_id} to: {new_name}")
+            return jsonify({"success": True, "message": message})
+        else:
+            return jsonify({"success": False, "error": message}), 400
+
+    except Exception as e:
+        logger.error(f"Error updating category: {str(e)}", exc_info=True)
+        return jsonify({"success": False, "error": f"Failed to update category: {str(e)}"}), 500
+
+
+@api_bp.route('/categories/<int:category_id>', methods=['DELETE'])
+def delete_category(category_id):
+    """Delete category and move expenses to 'Uncategorized'"""
+    try:
+        success, message, moved_count = db_manager.delete_category(category_id)
+
+        if success:
+            logger.info(f"Deleted category {category_id}, moved {moved_count} expenses")
+            return jsonify({
+                "success": True,
+                "message": message,
+                "moved_count": moved_count
+            })
+        else:
+            return jsonify({"success": False, "error": message}), 400
+
+    except Exception as e:
+        logger.error(f"Error deleting category: {str(e)}", exc_info=True)
+        return jsonify({"success": False, "error": f"Failed to delete category: {str(e)}"}), 500
+
+
 @api_bp.route('/view-expenses', methods=['GET'])
 def view_expenses():
     """API endpoint to view expenses with pagination and filtering"""

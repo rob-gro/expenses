@@ -91,6 +91,47 @@ function loadCategories() {
         });
 }
 
+// Load categories as checkboxes for report filtering
+function loadCategoryCheckboxes() {
+    fetch(`${API_BASE_URL}/api/categories`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.categories) {
+                const grid = document.getElementById('categoryCheckboxGrid');
+                grid.innerHTML = '';
+
+                // Sort categories alphabetically for better UX
+                const sortedCategories = data.categories.sort();
+
+                sortedCategories.forEach(category => {
+                    const col = document.createElement('div');
+                    col.className = 'col';
+
+                    // Create safe ID by replacing spaces with hyphens
+                    const safeId = 'cat-' + category.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+
+                    col.innerHTML = `
+                        <div class="form-check">
+                            <input class="form-check-input category-checkbox"
+                                   type="checkbox"
+                                   value="${category}"
+                                   id="${safeId}">
+                            <label class="form-check-label" for="${safeId}">
+                                ${category}
+                            </label>
+                        </div>
+                    `;
+                    grid.appendChild(col);
+                });
+
+                console.log(`Loaded ${sortedCategories.length} category checkboxes`);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading category checkboxes:', error);
+        });
+}
+
 // Show notification
 function showNotification(title, message, success = true) {
     toastTitle.textContent = title;
@@ -874,7 +915,17 @@ document.getElementById('needsReviewFilter').addEventListener('change', function
 document.getElementById('reportForm').addEventListener('submit', function(e) {
     e.preventDefault();
 
-    const category = document.getElementById('reportCategory').value;
+    // Get selected categories from checkboxes
+    const selectedCategories = Array.from(
+        document.querySelectorAll('.category-checkbox:checked')
+    ).map(checkbox => checkbox.value);
+
+    // Validation: At least one category must be selected
+    if (selectedCategories.length === 0) {
+        showNotification('Error', 'Please select at least one category', false);
+        return;
+    }
+
     const groupBy = document.getElementById('reportGroupBy').value;
     const startDate = document.getElementById('reportStartDate').value;
     const endDate = document.getElementById('reportEndDate').value;
@@ -883,7 +934,7 @@ document.getElementById('reportForm').addEventListener('submit', function(e) {
 
     // Create request data - email will use default if not provided
     const reportData = {
-        category: category,
+        categories: selectedCategories,  // Changed from 'category' to 'categories'
         group_by: groupBy,
         format: format,
         email: email
@@ -893,7 +944,8 @@ document.getElementById('reportForm').addEventListener('submit', function(e) {
     if (endDate) reportData.end_date = endDate;
 
     // Show processing notification
-    showNotification('Processing', 'Generating your report. This may take a moment...', true);
+    const categoryWord = selectedCategories.length === 1 ? 'category' : 'categories';
+    showNotification('Processing', `Generating report for ${selectedCategories.length} ${categoryWord}...`, true);
 
     // Send to server
     fetch(`${API_BASE_URL}/api/generate-report`, {
@@ -994,11 +1046,299 @@ function loadNeedsReviewCount() {
         });
 }
 
+// ===== Category Management Functions =====
+
+function loadCategoriesWithCounts() {
+    fetch(`${API_BASE_URL}/api/categories-with-counts`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                renderCategoriesList(data.categories);
+            } else {
+                showNotification('Error', 'Failed to load categories', false);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading categories:', error);
+            showNotification('Error', 'Failed to load categories', false);
+        });
+}
+
+function renderCategoriesList(categories) {
+    const list = document.getElementById('categoriesList');
+
+    if (categories.length === 0) {
+        list.innerHTML = '<div class="text-center text-muted py-3">No categories found</div>';
+        return;
+    }
+
+    list.innerHTML = categories.map(cat => `
+        <div class="list-group-item" data-category-id="${cat.id}" data-mode="view">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="flex-grow-1">
+                    <span class="category-name-display">${cat.name}</span>
+                    <input type="text" class="form-control form-control-sm category-name-input" value="${cat.name}" style="display: none;" maxlength="100">
+                    <small class="text-muted d-block">${cat.expense_count} expense(s)</small>
+                </div>
+                <div class="btn-group btn-group-sm">
+                    ${cat.name === 'Uncategorized' ? '' : `
+                        <button class="btn btn-outline-primary edit-category-btn" title="Edit category name">
+                            ✏️
+                        </button>
+                        <button class="btn btn-outline-success save-category-btn" style="display: none;" title="Save changes">
+                            ✓
+                        </button>
+                        <button class="btn btn-outline-secondary cancel-edit-btn" style="display: none;" title="Cancel">
+                            ✕
+                        </button>
+                        <button class="btn btn-outline-danger delete-category-btn" title="Delete category">
+                            🗑️
+                        </button>
+                    `}
+                </div>
+            </div>
+        </div>
+    `).join('');
+
+    // Attach event listeners to category items
+    attachCategoryItemListeners();
+}
+
+function attachCategoryItemListeners() {
+    // Edit buttons
+    document.querySelectorAll('.edit-category-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const item = this.closest('.list-group-item');
+            switchCategoryToEditMode(item);
+        });
+    });
+
+    // Save buttons
+    document.querySelectorAll('.save-category-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const item = this.closest('.list-group-item');
+            saveCategoryEdit(item);
+        });
+    });
+
+    // Cancel buttons
+    document.querySelectorAll('.cancel-edit-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const item = this.closest('.list-group-item');
+            cancelCategoryEdit(item);
+        });
+    });
+
+    // Delete buttons
+    document.querySelectorAll('.delete-category-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const item = this.closest('.list-group-item');
+            deleteCategory(item);
+        });
+    });
+}
+
+function switchCategoryToEditMode(item) {
+    item.setAttribute('data-mode', 'edit');
+
+    const display = item.querySelector('.category-name-display');
+    const input = item.querySelector('.category-name-input');
+    const editBtn = item.querySelector('.edit-category-btn');
+    const saveBtn = item.querySelector('.save-category-btn');
+    const cancelBtn = item.querySelector('.cancel-edit-btn');
+    const deleteBtn = item.querySelector('.delete-category-btn');
+
+    display.style.display = 'none';
+    input.style.display = 'block';
+    input.focus();
+    input.select();
+
+    editBtn.style.display = 'none';
+    saveBtn.style.display = 'inline-block';
+    cancelBtn.style.display = 'inline-block';
+    deleteBtn.style.display = 'none';
+}
+
+function cancelCategoryEdit(item) {
+    item.setAttribute('data-mode', 'view');
+
+    const display = item.querySelector('.category-name-display');
+    const input = item.querySelector('.category-name-input');
+    const editBtn = item.querySelector('.edit-category-btn');
+    const saveBtn = item.querySelector('.save-category-btn');
+    const cancelBtn = item.querySelector('.cancel-edit-btn');
+    const deleteBtn = item.querySelector('.delete-category-btn');
+
+    // Reset input to original value
+    input.value = display.textContent;
+
+    display.style.display = 'inline';
+    input.style.display = 'none';
+
+    editBtn.style.display = 'inline-block';
+    saveBtn.style.display = 'none';
+    cancelBtn.style.display = 'none';
+    deleteBtn.style.display = 'inline-block';
+}
+
+function saveCategoryEdit(item) {
+    const categoryId = item.getAttribute('data-category-id');
+    const input = item.querySelector('.category-name-input');
+    const newName = input.value.trim();
+
+    if (!newName) {
+        showNotification('Error', 'Category name cannot be empty', false);
+        return;
+    }
+
+    fetch(`${API_BASE_URL}/api/categories/${categoryId}`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name: newName })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('Success', data.message, true);
+
+            // Update display
+            const display = item.querySelector('.category-name-display');
+            display.textContent = newName;
+
+            // Switch back to view mode
+            cancelCategoryEdit(item);
+
+            // Refresh all category dropdowns and checkboxes
+            loadCategories();
+            loadCategoryCheckboxes();
+        } else {
+            showNotification('Error', data.error, false);
+        }
+    })
+    .catch(error => {
+        console.error('Error updating category:', error);
+        showNotification('Error', 'Failed to update category', false);
+    });
+}
+
+function deleteCategory(item) {
+    const categoryId = item.getAttribute('data-category-id');
+    const categoryName = item.querySelector('.category-name-display').textContent;
+    const expenseCount = parseInt(item.querySelector('.text-muted').textContent);
+
+    let confirmMessage = `Are you sure you want to delete the category "${categoryName}"?`;
+    if (expenseCount > 0) {
+        confirmMessage += `\n\n${expenseCount} expense(s) will be moved to "Uncategorized".`;
+    }
+
+    if (!confirm(confirmMessage)) {
+        return;
+    }
+
+    fetch(`${API_BASE_URL}/api/categories/${categoryId}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let message = data.message;
+            if (data.moved_count > 0) {
+                message += ` (${data.moved_count} expense(s) moved to Uncategorized)`;
+            }
+            showNotification('Success', message, true);
+
+            // Reload categories list
+            loadCategoriesWithCounts();
+
+            // Refresh all category dropdowns and checkboxes
+            loadCategories();
+            loadCategoryCheckboxes();
+
+            // Reload expenses if on that tab
+            if (document.getElementById('view-tab').getAttribute('aria-selected') === 'true') {
+                loadExpenses();
+            }
+        } else {
+            showNotification('Error', data.error, false);
+        }
+    })
+    .catch(error => {
+        console.error('Error deleting category:', error);
+        showNotification('Error', 'Failed to delete category', false);
+    });
+}
+
 // Initialization when document loads
 document.addEventListener('DOMContentLoaded', function() {
     loadCategories();
+    loadCategoryCheckboxes();  // Load checkboxes for reports
     loadNeedsReviewCount();  // Load badge count immediately
     initExpenseRecording();
     initReportRecording();
     setupCategoryChangeHandlers();  // Set up event listeners ONCE on init
+
+    // Handle Select All / Deselect All for report categories
+    document.getElementById('selectAllCategories').addEventListener('change', function(e) {
+        const checkboxes = document.querySelectorAll('.category-checkbox');
+        const isChecked = e.target.checked;
+
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = isChecked;
+        });
+
+        console.log(`${isChecked ? 'Selected' : 'Deselected'} all categories`);
+    });
+
+    // Load categories when Categories tab is shown
+    document.getElementById('categories-tab').addEventListener('shown.bs.tab', function() {
+        loadCategoriesWithCounts();
+    });
+
+    // Handle add category form submission
+    document.getElementById('addCategoryForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const input = document.getElementById('newCategoryName');
+        const categoryName = input.value.trim();
+
+        if (!categoryName) {
+            showNotification('Error', 'Please enter a category name', false);
+            return;
+        }
+
+        fetch(`${API_BASE_URL}/api/categories`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name: categoryName })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification('Success', data.message, true);
+
+                // Clear input
+                input.value = '';
+
+                // Reload categories list in modal
+                loadCategoriesWithCounts();
+
+                // Refresh all category dropdowns and checkboxes
+                loadCategories();
+                loadCategoryCheckboxes();
+            } else {
+                showNotification('Error', data.error, false);
+            }
+        })
+        .catch(error => {
+            console.error('Error adding category:', error);
+            showNotification('Error', 'Failed to add category', false);
+        });
+    });
 });
