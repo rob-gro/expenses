@@ -12,7 +12,7 @@ contourpy==1.3.2
 cycler==0.12.1
 pyparsing==3.0.9
 fonttools==4.58.0
-pillow==11.2.1
+pillow==11.3.0
 
 # Biblioteki NLP
 spacy~=3.8.4
