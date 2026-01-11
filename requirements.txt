@@ -11,7 +11,7 @@ kiwisolver==1.4.8
 contourpy==1.3.2
 cycler==0.12.1
 pyparsing==3.0.9
-fonttools==4.58.0
+fonttools==4.61.0
 pillow==11.2.1
 
 # Biblioteki NLP
